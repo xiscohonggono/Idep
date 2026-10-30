@@ -45,3 +45,32 @@ Invoke each skill at its trigger (if installed in `.agents/skills` or global ski
 - Technical Debt Audits: Invoke `ponytail-debt` or `ponytail-audit` to evaluate codebase maintainability.
 - Verification Checks: Invoke `verify-and-stop` for read-only validation tasks.
 - External Documentation & Web Crawling: Use `firecrawl-search` for doc lookups, `firecrawl-scrape` for page contents, and `firecrawl-crawl` / `firecrawl-map` for multi-page ingestions.
+
+## 6. Project Architecture, Workflows & Guardrails (`turbo-next-go-template`)
+
+Turborepo + pnpm monorepo featuring a Next.js (App Router) web app and an independent Go 1.24 HTTP microservice (Huma + `sqlc`).
+
+### Architecture & Layout
+- `apps/web`: Next.js frontend application with Tailwind CSS and React. Uses Vitest for unit/integration testing.
+- `apps/api`: Go HTTP backend built with Huma (OpenAPI 3.1) and Chi router. Database queries are compiled using `sqlc`.
+- `apps/web/lib/api/schema.d.ts`: Strongly-typed TypeScript interfaces auto-generated directly from `apps/api/openapi.json`.
+- `packages/*`: Shared internal packages and configuration across the monorepo workspace.
+
+### Core Workflows & Commands
+- `pnpm dev`: Runs both Next.js and Go services concurrently via Turborepo.
+- `pnpm build`: Builds the Next.js production bundle and compiles the Go binary.
+- `pnpm lint`: Runs repository-wide lint checks.
+- `pnpm test`: Runs Vitest across frontend workspaces and Go unit tests in `apps/api`.
+- `pnpm codegen`: Synchronizes the full-stack type boundary:
+  1. Compiles SQL queries into type-safe Go structs via `sqlc generate`.
+  2. Exports the OpenAPI 3.1 spec from Go Huma types (`apps/api/openapi.json`).
+  3. Generates TypeScript types for the web app (`apps/web/lib/api/schema.d.ts`) via `openapi-typescript`.
+  *Always run `pnpm codegen` after modifying database schema queries or Go API handler contracts.*
+
+### Engineering Rules & Guardrails
+1. **End-to-End Type Safety:** Do not manually author API response types in `apps/web`. Register new routes with Huma structs in `apps/api`, run `pnpm codegen`, and import types from `@/lib/api/schema`.
+2. **Database Queries:** No raw, hand-written inline SQL strings in Go handler logic. Write pure SQL under `apps/api/sql/queries/*.sql` and compile them using `sqlc`.
+3. **CI/CD Hygiene:**
+   - Security auditing runs on every commit via Gitleaks (secret detection) and Google OSV Scanner.
+   - All Go builds, tests, and Vitest suites must pass on Node 22 and Go 1.24 runners before merging to `main`.
+4. **Environment Variables:** Commits must never include raw secrets or production credentials. Store development fallbacks in `.env.example`.

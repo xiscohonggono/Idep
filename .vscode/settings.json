@@ -1,0 +1,10 @@
+{
+  "go.useLanguageServer": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "files.exclude": {
+    "**/.git": true,
+    "**/.next": true,
+    "**/dist": true,
+    "**/node_modules": true
+  }
+}
