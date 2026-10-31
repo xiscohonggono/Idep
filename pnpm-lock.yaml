@@ -102,8 +102,8 @@ importers:
         specifier: 7.1.1
         version: 7.1.1(eslint@10.9.1(supports-color@10.2.2))(supports-color@10.2.2)
       eslint-plugin-turbo:
-        specifier: 2.10.12
-        version: 2.10.12(eslint@10.9.1(supports-color@10.2.2))(turbo@2.11.10)
+        specifier: 2.11.10
+        version: 2.11.10(eslint@10.9.1(supports-color@10.2.2))(turbo@2.11.10)
       globals:
         specifier: 17.12.0
         version: 17.12.0
@@ -1223,8 +1223,8 @@ packages:
     peerDependencies:
       eslint: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0 || ^9.0.0 || ^10.0.0
 
-  eslint-plugin-turbo@2.10.12:
-    resolution: {integrity: sha512-QZ9u3sV3ky4bl3XUpsVG8Ehk11I0omsGV2K7dCDut6sGvaVErFvWbgd46oh5tsnLt/5i+KvuOWgKJneleMqk2Q==}
+  eslint-plugin-turbo@2.11.10:
+    resolution: {integrity: sha512-he4kQi41ZX8KM9fxCCl9cmhbk37bNnXR0EVGP6xc12KvxfoosfHmMVsdo7zX2a1G/iPhbLaXSATZorXAA5eXOw==}
     peerDependencies:
       eslint: '>6.6.0'
       turbo: '>2.0.0'
@@ -2862,7 +2862,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-turbo@2.10.12(eslint@10.9.1(supports-color@10.2.2))(turbo@2.11.10):
+  eslint-plugin-turbo@2.11.10(eslint@10.9.1(supports-color@10.2.2))(turbo@2.11.10):
     dependencies:
       dotenv: 16.0.3
       eslint: 10.9.1(supports-color@10.2.2)
