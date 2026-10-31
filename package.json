@@ -11,9 +11,9 @@
   },
   "devDependencies": {
     "turbo": "^2.11.10",
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   },
   "overrides": {
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   }
 }
