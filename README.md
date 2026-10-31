@@ -6,30 +6,90 @@ Adults studying for the GED—whether to switch careers or qualify for a Bachelo
 
 ---
 
+## Architectural & Database Contract Suite
+
+Idep is developed specification-first under a documentation-led onboarding model. Read these foundational contracts before writing or reviewing any feature code:
+
+| Contract Document | Purpose & Scope |
+| :--- | :--- |
+| **[`README.md`](file:///home/xiscohonggono/projects/Idep/README.md)** | Project overview, business scope & non-goals, domain actors, user journeys, 33-story catalog, and developer onboarding. |
+| **[`docs/architecture/architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md)** | Architecture Decision Records (ADRs 001–006): service ownership, security boundaries, composable RBAC, Maker–Checker state machine, grounded AI pipeline, privacy/retention, and reliability/failure modes. |
+| **[`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md)** | Authoritative PostgreSQL DDL contract (22 tables across 4 domains), ER diagram, database-enforced invariants, access patterns, and indexing strategy. |
+| **[`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md)** | Safe staged rollout plan (`Expand → Migrate → Verify → Contract`) across Stages 0–4, zero-downtime DDL rules, rollback playbooks, and verification gates. |
+| **[`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)** | Explicit *"What Is Not Allowed"* prohibitions, fail-closed governance checklist, operational constraints, and dual-agent workflow rules. |
+
+---
+
 ## Start Here: Engineering Execution Order
 
-Idep is developed specification-first. All foundational work follows a strict **ADRs → Schema → Rollout** sequence before feature UI or handler logic is written:
+All foundational and feature work follows a strict **ADRs → Schema → Rollout** sequence before feature UI or handler logic is written:
 
-1. **Architecture Decision Records (`docs/architecture/`)**
+1. **Architecture Decision Records ([`docs/architecture/architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md))**
    Lock down cross-cutting architectural boundaries first:
    - **Identity, Multi-Role RBAC & Guest Metering**: Single accounts holding combinations of `User`, `Editor`, `Checker`, and `Admin` roles, plus 3-free-chapter guest tracking (`U-13`).
    - **Chapter Versioning & Maker–Checker State Machine**: Proposal lifecycle (`Draft` → `Submitted` → `In review` → `Changes requested` | `Published` | `Rejected`), two-person integrity (`C-06` self-approval block), 48-hour review claim expiry (`C-02`), and optimistic concurrency / merge conflict handling (`E-09`, `C-08`).
    - **AI Grounding & Structured Evaluation Pipeline**: Prompting, grounding constraints (strictly anchored to chapter text per `U-04`), structured output contracts for term definitions (`U-05`), step-by-step job-field analogies (`U-06`), analogy limits (`U-07`), prerequisite chapter resolution (`U-08`), and iterative re-explanation grading (`U-09`, `U-10`).
-   - **Sensitive Document Handling**: Access controls and storage for licensed educator verification proofs (`E-02`).
+   - **Sensitive Document Handling**: Access controls, short-lived signed URLs, and post-decision purge schedule for licensed educator verification proofs (`E-02`).
 
-2. **Database Schema & Type-Safe Contracts (`apps/api/sql/` → `pnpm codegen`)**
+2. **Database Schema & Type-Safe Contracts ([`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) → `apps/api/sql/` → `pnpm codegen`)**
    Define PostgreSQL migrations and `sqlc` queries before implementing handlers or frontend components:
-   - Core tables covering users, role assignments, user work-experience profiles, subjects, chapters, immutable chapter versions, edit/new-chapter proposals, citations, line comments, educator verification requests, checker applications/revocations, learner highlights/explanations, re-explanation attempts, and notifications.
+   - Core tables covering users, role assignments, user work-experience profiles, subjects, chapters, immutable chapter versions, edit/new-chapter proposals, citations, line comments, educator verification requests, checker applications/revocations, learner highlights/explanations, re-explanation attempts, quality reports, notifications, and audit events.
    - Register Huma (OpenAPI 3.1) contracts in `apps/api` and run `pnpm codegen` so `apps/web/lib/api/schema.d.ts` stays the single source of truth across the full stack.
 
-3. **Phased Rollout (`docs/plans/` & `docs/verification/`)**
+3. **Phased Rollout ([`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md), [`docs/plans/`](file:///home/xiscohonggono/projects/Idep/docs/plans/) & [`docs/verification/`](file:///home/xiscohonggono/projects/Idep/docs/verification/))**
    Deliver the 33 user stories in priority order (**Must** for initial MVP release, **Should** for fast-follow, **Could** for post-MVP), tracking implementation plans in `docs/plans/Pending/` → `docs/plans/Implemented/` and validation evidence in `docs/verification/`.
 
 ---
 
-## Product Overview
+## Business Scope & Non-Goals
 
-### Core Learning Loop
+| In-Scope Product Capabilities | Explicit Non-Goals (Out of Scope) |
+| :--- | :--- |
+| **4 Official GED Subject Curricula (`U-03`):** Mathematical Reasoning, Reasoning Through Language Arts, Science, and Social Studies with ordered chapters, headings, TOC, and keyword search. | **Official GED Exam Administration:** No test proctoring, official exam booking, or diploma issuance. |
+| **3-Free-Chapter Guest Metering (`U-13`):** Unauthenticated visitors can read up to 3 distinct chapters for free (re-reading does not consume quota) before hitting a sign-up gate on the 4th chapter. | **Open-Ended AI Chatbots:** No unanchored conversational chat; every AI explanation requires a 1–3 paragraph highlight from a published chapter (`U-04`). |
+| **Work-Experience Analogy & Active Recall Loop (`U-01`–`U-12`):** Step-by-step job-field analogies (`U-06`), mandatory analogy breakdown limits (`U-07`), prerequisite links (`U-08`), and formative re-explanation grading (`U-09`, `U-10`). | **Real-Time Multi-Cursor Co-Editing:** Concurrency is handled via optimistic version checking and explicit diff merging (`E-09`), not live WebSocket cursor sync. |
+| **Maker–Checker Editorial Governance (`E-01`–`E-10`, `C-01`–`C-10`):** Community edit/new-chapter proposals, two-person review, 48h claim locks, side-by-side diffs, citations, and immutable version rollbacks. | **Direct Unreviewed Publishing or Numeric Test Scores:** No Editor, Checker, or Admin can overwrite a live chapter directly; `U-10` gives qualitative feedback rather than percentage grades. |
+
+---
+
+## Product Overview, Domain Model & Key Workflows
+
+### Bounded Contexts & Domain Model
+
+```mermaid
+flowchart TB
+    subgraph IdentityContext["1. Identity, RBAC & Guest Metering"]
+        Users["Users & Composable Roles\n(user, editor, checker, admin)"]
+        WorkExp["Work-Experience Profile\n(Job Fields & Optional Roles - U-01, U-02)"]
+        GuestQuota["Guest Session Metering\n(Max 3 Unique Chapters - U-13)"]
+        EduVerify["Educator Verification & Checker Apps\n(E-02, C-09, C-10)"]
+    end
+
+    subgraph CurriculumContext["2. Curriculum & Maker-Checker Governance"]
+        Subjects["4 GED Subjects & Chapters\n(Ordered TOC + Full-Text Search - U-03)"]
+        Versions["Immutable Chapter Versions\n(Author + Checker Attribution - C-04, C-08)"]
+        Proposals["Proposals, Revisions, Citations & Line Comments\n(Two-Person Integrity & 48h Claims - E-03..E-09, C-01..C-07)"]
+    end
+
+    subgraph AIStudyContext["3. Grounded AI Study & Active Recall"]
+        Highlights["Passage Highlights (1-3 Paragraphs)\n& 'To Re-Explain' Queue (U-04, U-09)"]
+        Explanations["Structured AI Explanations\n(Terms U-05, Job Analogy U-06, Limits U-07, Prereqs U-08)"]
+        Recall["Re-Explanation Attempts & Iterative Feedback\n(Right / Inaccuracies / Missing / Hints - U-10)"]
+        QualityFlags["AI Quality Reports & Study History\n(U-11, U-12)"]
+    end
+
+    Users --> WorkExp
+    Users --> Proposals
+    Proposals -->|"Approved by Checker (C-04)"| Versions
+    Versions -->|"Current Live Pointer"| Subjects
+    Versions -->|"Grounds Selection"| Highlights
+    WorkExp -->|"Shapes Analogy"| Explanations
+    Highlights --> Explanations
+    Explanations --> Recall
+    Recall --> QualityFlags
+```
+
+### Core Learning Loop (`U-01` – `U-13`)
 
 1. **Work-Experience Onboarding (`U-01`, `U-02`)**: Learners select one or more job fields they have worked in (e.g., *F&B*, *Retail*, *Logistics*, *Healthcare*, *Construction*) and optional roles (e.g., *line cook*, *cashier*). If skipped, Idep falls back to everyday-life analogies and prompts the user to add work experience later.
 2. **Subject & Chapter Navigation (`U-03`, `U-13`)**: Learners browse and search Wikipedia-style chapters across the four GED subjects:
@@ -54,9 +114,11 @@ One account can hold multiple roles simultaneously:
 
 | Role | Who They Are | What They Do on Idep |
 | :--- | :--- | :--- |
-| **User** | An adult studying for the GED (typically working while studying), or an unauthenticated guest | Reads subject notes (up to 3 chapters as a guest), highlights passages for AI explanations grounded in their past jobs, and re-explains concepts to verify understanding. |
-| **Editor** *(Maker)* | Any registered member who opts in and accepts the editing guidelines; may optionally verify credentials as a licensed secondary or higher educator | Proposes edits to existing chapter pages or proposes new chapters using formatting tools, previews, citations, and mandatory edit summaries. Never modifies live pages directly. |
-| **Checker** *(Checker)* | A community member who applies and is approved by Idep admins (role is revocable by admins with a logged reason) | Reviews Editors' submitted proposals via side-by-side diffs, requests changes or rejects with mandatory reasons, approves and publishes changes to live chapter pages, and can roll back published versions. Cannot claim or approve their own (or co-authored) proposals. |
+| **Guest** | Unauthenticated visitor exploring Idep | Browses the 4 GED subjects, searches chapters, and reads up to 3 unique chapters for free (`U-13`). Prompted to sign up/log in on the 4th chapter or when invoking the AI explanation sidebar (`U-04`). |
+| **User** | An adult studying for the GED (typically working while studying) | Reads unlimited chapters, configures work-experience job fields (`U-01`, `U-02`), highlights passages for grounded AI analogies (`U-04`–`U-08`), re-explains concepts (`U-09`, `U-10`), reviews study history (`U-11`), and reports flawed AI outputs (`U-12`). |
+| **Editor** *(Maker)* | Any registered member who opts in and accepts the editing guidelines (`E-01`); may optionally verify credentials as a licensed secondary or higher educator (`E-02`) | Proposes edits to existing chapter pages (`E-03`) or proposes new chapters (`E-06`) using formatting tools, previews, private drafts (`E-04`), citations (`E-05`), and mandatory edit summaries. Never modifies live pages directly. |
+| **Checker** *(Checker)* | A community member who applies (`C-09`) and is approved by Idep admins (role is revocable by admins with a logged reason per `C-10`) | Claims proposals with a 48h lease (`C-02`), reviews Editors' submitted proposals via side-by-side diffs (`C-03`) and line comments (`C-07`), requests changes or rejects with mandatory reasons (`C-05`), approves and publishes changes to live chapter pages (`C-04`), and rolls back published versions (`C-08`). Cannot claim or approve their own (or co-authored) proposals (`C-06`). |
+| **Admin** *(Verifier)* | Authorized platform administrator (`[ASSUMPTION-A1]`) | Reviews educator credential proofs (`E-02`) via audited short-lived signed URLs, approves or rejects Checker applications (`C-09`), and revokes Checker status with mandatory logged reasons (`C-10`). |
 
 ---
 
@@ -116,22 +178,22 @@ Stories use **MoSCoW** prioritization: **Must** (required for first release / MV
 
 ## Rollout Roadmap
 
-### Phase 1: Foundation, Identity & Reader MVP (`Must`)
+### Phase 1: Foundation, Identity & Reader MVP (`Must` — Migration Stages 0 & 1)
 - Account registration, authentication, and work-experience onboarding (`U-01`).
 - Four GED subjects, ordered chapter directory, Wikipedia-style chapter reader (headings + TOC), and keyword search (`U-03`).
 - Guest 3-chapter metering with remaining-counter and sign-up gate on the 4th chapter (`U-13`).
 
-### Phase 2: Maker–Checker Editorial Loop (`Must`)
+### Phase 2: Maker–Checker Editorial Loop (`Must` — Migration Stage 2)
 - Editor opt-in with guideline acceptance (`E-01`) and chapter edit proposal submission with mandatory edit summaries (`E-03`).
 - Checker application and admin approval/revocation workflows (`C-09`, `C-10`).
 - Checker review queue (`C-01`), side-by-side diff viewer (`C-03`), self-approval guard (`C-06`), approve-and-publish versioning (`C-04`), request-changes/reject with reason (`C-05`), Editor proposal tracking/notifications (`E-07`), and Editor revision loop (`E-08`).
 
-### Phase 3: AI Work-Analogy & Active Recall Sidebar (`Must`)
+### Phase 3: AI Work-Analogy & Active Recall Sidebar (`Must` — Migration Stage 3)
 - Text selection handler (up to 3 paragraphs) and explanation sidebar grounded in chapter text (`U-04`).
 - Plain-language term extraction with chapter cross-links (`U-05`), step-by-step work-experience analogy generation with field switching and regeneration (`U-06`), analogy boundary explanations (`U-07`), and prerequisite chapter recommendations (`U-08`).
 - Active recall re-explanation prompt with *"To re-explain"* queue (`U-09`) and structured AI evaluation with retry tracking and off-topic hints (`U-10`).
 
-### Phase 4: Fast-Follow Enhancements (`Should` & `Could`)
+### Phase 4: Fast-Follow Enhancements (`Should` & `Could` — Migration Stage 4)
 - **Learner Enhancements**: Work-experience profile management (`U-02`), study history ledger (`U-11`), and wrong-AI-explanation reporting (`U-12`).
 - **Editorial & Governance Enhancements**: Licensed educator verification (`E-02`), private drafts (`E-04`), numbered source citations (`E-05`), new chapter proposals (`E-06`), concurrent edit conflict merging (`E-09`), 48-hour proposal claiming (`C-02`), inline line comments (`C-07`), version rollbacks (`C-08`), and public Editor contribution profiles (`E-10`).
 
@@ -143,23 +205,48 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 
 ```text
 .
+├── .agent/
+│   └── rules/
+│       └── project_guardrails.md           # Hard prohibitions, fail-closed checklist & operational limits
+├── .agents/
+│   └── skills/                             # Agent workflow skills (delegate-to-claude, migration, ponytail, etc.)
 ├── apps/
-│   ├── api/                  # Go 1.24 HTTP backend (Chi + Huma OpenAPI 3.1 + sqlc)
-│   │   ├── cmd/              # Service entrypoints (server & OpenAPI spec exporter)
-│   │   ├── internal/         # Domain packages, HTTP handlers, and middleware
-│   │   ├── sql/              # Database schema migrations and sqlc query definitions
-│   │   └── openapi.json      # Generated OpenAPI 3.1 specification
-│   └── web/                  # Next.js (App Router) frontend (React, Tailwind CSS, Vitest)
-│       └── lib/api/schema.d.ts # Auto-generated TypeScript types from apps/api/openapi.json
-├── packages/                 # Shared UI components, ESLint, and TypeScript configs
-└── docs/
-    ├── architecture/         # Architecture Decision Records (ADRs)
-    ├── plans/                # Implementation ledger (Pending/ and Implemented/)
-    ├── reviews/              # Architectural and code review artifacts
-    └── verification/         # Test logs, rollout checks, and validation evidence
+│   ├── api/                                # Go 1.24 HTTP backend (Chi + Huma OpenAPI 3.1 + sqlc + pgx/v5)
+│   │   ├── cmd/server/                     # Service entrypoint & --export-openapi exporter
+│   │   ├── internal/                       # Domain packages, services, Huma handlers, middleware, and sqlc db
+│   │   ├── sql/
+│   │   │   ├── schema/                     # Staged PostgreSQL DDL migrations (001..008)
+│   │   │   └── queries/                    # Compiled sqlc query files (*.sql)
+│   │   ├── sqlc.yaml                       # sqlc compiler configuration
+│   │   └── openapi.json                    # Generated OpenAPI 3.1 contract
+│   └── web/                                # Next.js (App Router) frontend (React 19, Tailwind CSS, Vitest)
+│       └── lib/api/schema.d.ts             # Auto-generated TypeScript types from apps/api/openapi.json
+├── packages/                               # Shared UI components (@repo/ui), ESLint, and TypeScript configs
+├── docs/
+│   ├── architecture/
+│   │   ├── architectural_decisions.md      # ADRs (ADR-001 through ADR-006)
+│   │   ├── database_schema.md              # PostgreSQL schema contract & access patterns
+│   │   └── database_staging_plan.md        # Staged migration & rollback plan (Stages 0–4)
+│   ├── plans/                              # Implementation ledger (Pending/ and Implemented/)
+│   ├── reviews/                            # Architectural and code review artifacts
+│   └── verification/                       # Test logs, rollout checks, and validation evidence
+├── AGENTS.md                               # Global & repository engineering instructions
+├── GEMINI.md                               # Architect & Reviewer role configuration
+├── CLAUDE.md                               # Builder role configuration
+└── README.md                               # Project overview & onboarding entry point
 ```
 
-### Core Commands
+---
+
+## Documentation-Led Onboarding Guide
+
+### 1. Required Reading Order for New Engineers & Agents
+1. Read this [`README.md`](file:///home/xiscohonggono/projects/Idep/README.md) for product domain and user story scope.
+2. Read [`docs/architecture/architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) and [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md) to internalize security boundaries, fail-closed governance, and *"What Is Not Allowed"* rules.
+3. Inspect [`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) and [`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md) before touching `apps/api/sql/`.
+4. Check [`docs/plans/Pending/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/) and [`docs/plans/Implemented/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Implemented/) to see current delivery state.
+
+### 2. Core Commands
 
 | Command | Description |
 | :--- | :--- |
@@ -169,8 +256,9 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 | `pnpm lint` | Runs repository-wide linting across frontend and backend workspaces. |
 | `pnpm test` | Runs Vitest suites across frontend workspaces and Go unit/integration tests in `apps/api`. |
 
-### Engineering Guardrails
+### 3. Engineering Guardrails Summary
 
 1. **End-to-End Type Safety**: Never hand-write API response types in `apps/web`. Define routes with Huma structs in `apps/api`, run `pnpm codegen`, and import generated types from `@/lib/api/schema`.
 2. **Compiled SQL Only**: Do not embed raw inline SQL strings in Go handlers. Author SQL in `apps/api/sql/queries/*.sql` and compile with `sqlc`.
-3. **Dual-Agent & Ledger Discipline**: Draft implementation plans in [`docs/plans/Pending/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/), record code reviews in [`docs/reviews/`](file:///home/xiscohonggono/projects/Idep/docs/reviews/), log verification proof in [`docs/verification/`](file:///home/xiscohonggono/projects/Idep/docs/verification/), and move completed plans to [`docs/plans/Implemented/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Implemented/).
+3. **Fail-Closed Governance**: Never return mock fallback data on DB/auth errors, never permit self-approval (`C-06`), and never mutate live `chapter_versions` in place.
+4. **Dual-Agent & Ledger Discipline**: Draft implementation plans in [`docs/plans/Pending/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/), record code reviews in [`docs/reviews/`](file:///home/xiscohonggono/projects/Idep/docs/reviews/), log verification proof in [`docs/verification/`](file:///home/xiscohonggono/projects/Idep/docs/verification/), and move completed plans to [`docs/plans/Implemented/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Implemented/).
