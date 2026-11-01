@@ -1,6 +1,6 @@
 # Database Schema & Persistence Contract
 
-> **Status:** Proposed — Pending approval (not implemented)  
+> **Status:** Approved Contract — Ready for staged implementation (not yet migrated in `apps/api/sql/`)  
 > **Engine:** PostgreSQL 16+ · **Driver:** `jackc/pgx/v5` · **Compiler:** `sqlc` (`apps/api/sqlc.yaml`)  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
@@ -103,6 +103,20 @@ CREATE TABLE job_fields (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Seed 10-Field Starter Catalog (U-01)
+INSERT INTO job_fields (code, name, description, example_roles, display_order) VALUES
+    ('fnb', 'Food & Beverage', 'Restaurants, cafes, catering, and commercial kitchens', ARRAY['line cook', 'barista', 'server', 'kitchen prep'], 1),
+    ('retail', 'Retail & Sales', 'Storefronts, grocery, cashiering, and merchandising', ARRAY['cashier', 'stock associate', 'shift supervisor', 'merchandiser'], 2),
+    ('logistics', 'Warehousing, Delivery & Logistics', 'Fulfillment centers, freight, inventory, and last-mile delivery', ARRAY['warehouse associate', 'delivery driver', 'forklift operator', 'dispatcher'], 3),
+    ('healthcare', 'Healthcare & Caregiving', 'Clinics, patient care, nursing support, and home health', ARRAY['nursing assistant', 'home health aide', 'medical receptionist', 'orderly'], 4),
+    ('construction', 'Construction & Skilled Trades', 'Building trades, electrical, plumbing, and site operations', ARRAY['carpenter', 'electrician apprentice', 'general laborer', 'plumber'], 5),
+    ('hospitality', 'Hospitality & Housekeeping', 'Hotels, lodging, facilities upkeep, and guest services', ARRAY['front desk agent', 'housekeeper', 'maintenance technician', 'concierge'], 6),
+    ('manufacturing', 'Manufacturing & Assembly', 'Factory production lines, fabrication, and quality control', ARRAY['machine operator', 'assembly line worker', 'quality inspector', 'packager'], 7),
+    ('office_admin', 'Office, Clerical & Customer Support', 'Front-office administration, scheduling, billing, and call centers', ARRAY['administrative assistant', 'call center rep', 'data entry clerk', 'receptionist'], 8),
+    ('automotive', 'Automotive & Mechanical Repair', 'Vehicle maintenance, diagnostics, parts, and shop operations', ARRAY['auto technician', 'tire & lube tech', 'parts advisor', 'service writer'], 9),
+    ('childcare_education', 'Childcare & Community Support', 'Early childhood care, after-school programs, and community services', ARRAY['daycare provider', 'teacher''s aide', 'after-school counselor', 'youth worker'], 10)
+ON CONFLICT (code) DO NOTHING;
+
 -- 4. Learner Work-Experience Profile (U-01, U-02)
 CREATE TABLE user_work_experiences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -201,6 +215,14 @@ CREATE TABLE subjects (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Seed 4 Official GED Subjects (U-03)
+INSERT INTO subjects (slug, title, description, display_order) VALUES
+    ('mathematical-reasoning', 'Mathematical Reasoning', 'Quantitative problem solving, algebraic reasoning, geometry, and workplace math applications.', 1),
+    ('reasoning-through-language-arts', 'Reasoning Through Language Arts', 'Reading comprehension, evidence-based argument analysis, grammar, and extended response writing.', 2),
+    ('science', 'Science', 'Life science, physical science, Earth and space systems, scientific method, and data interpretation.', 3),
+    ('social-studies', 'Social Studies', 'Civics and government, U.S. history, economics, geography, and primary source evaluation.', 4)
+ON CONFLICT (slug) DO NOTHING;
+
 -- 9. Chapters Directory (U-03, E-06)
 CREATE TABLE chapters (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -225,28 +247,32 @@ CREATE INDEX idx_chapters_search_tsv
     ON chapters USING GIN (search_tsv)
     WHERE status = 'published';
 
--- 10. Immutable Chapter Versions (C-04, C-06, C-08, E-10)
+-- 10. Immutable Chapter Versions (U-03, E-05, C-04, C-06, C-08, E-10)
 CREATE TABLE chapter_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE RESTRICT,
     version_number INT NOT NULL CHECK (version_number > 0),
     title TEXT NOT NULL CHECK (char_length(btrim(title)) BETWEEN 3 AND 200),
     content_markdown TEXT NOT NULL CHECK (char_length(btrim(content_markdown)) > 0),
-    toc_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    toc_json JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(toc_json) = 'array'),
+    -- Immutable snapshot of numbered source citations (E-05) for this published/seeded/rolled-back version
+    citations_json JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(citations_json) = 'array'),
     edit_summary TEXT NOT NULL CHECK (char_length(btrim(edit_summary)) > 0),
     author_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    checker_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    checker_id UUID REFERENCES users(id) ON DELETE RESTRICT, -- Nullable ONLY for initial baseline curriculum seeds
     source_proposal_id UUID, -- FK to proposals(id)
     rollback_from_version_id UUID REFERENCES chapter_versions(id) ON DELETE RESTRICT,
     rollback_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (chapter_id, version_number),
-    -- Two-Person Integrity (C-06): Author and Checker must never be the same account
-    CONSTRAINT chk_two_person_integrity CHECK (author_id <> checker_id),
-    -- Rollback Provenance (C-08): Rollback requires a non-empty reason
-    CONSTRAINT chk_rollback_reason CHECK (
-        rollback_from_version_id IS NULL
-        OR (rollback_reason IS NOT NULL AND char_length(btrim(rollback_reason)) > 0)
+    -- Provenance & Two-Person Integrity (U-03, C-04, C-06, C-08):
+    -- 1. Standard proposal publication requires a Checker distinct from Author (author_id <> checker_id)
+    -- 2. Rollback requires a Checker and non-empty rollback_reason (even if Checker originally authored the restored target version)
+    -- 3. Initial baseline curriculum seed has no proposal, no rollback, and checker_id IS NULL
+    CONSTRAINT chk_version_provenance CHECK (
+        (source_proposal_id IS NOT NULL AND rollback_from_version_id IS NULL AND checker_id IS NOT NULL AND author_id <> checker_id AND rollback_reason IS NULL)
+        OR (rollback_from_version_id IS NOT NULL AND source_proposal_id IS NULL AND checker_id IS NOT NULL AND rollback_reason IS NOT NULL AND char_length(btrim(rollback_reason)) > 0)
+        OR (source_proposal_id IS NULL AND rollback_from_version_id IS NULL AND checker_id IS NULL AND rollback_reason IS NULL)
     )
 );
 
@@ -283,6 +309,7 @@ CREATE TABLE proposals (
     proposed_slug TEXT NOT NULL,
     proposed_display_order INT NOT NULL CHECK (proposed_display_order > 0),
     proposed_content_markdown TEXT NOT NULL,
+    proposed_prerequisite_chapter_ids UUID[] NOT NULL DEFAULT '{}',
     edit_summary TEXT NOT NULL DEFAULT '',
     author_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
@@ -303,10 +330,10 @@ CREATE TABLE proposals (
     published_version_id UUID REFERENCES chapter_versions(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- Edit proposals must reference an existing chapter & base_version_id
+    -- Edit proposals must reference an existing chapter & base_version_id; new_chapter proposals have no base_version_id
     CONSTRAINT chk_proposal_target CHECK (
         (proposal_type = 'edit_chapter' AND chapter_id IS NOT NULL AND base_version_id IS NOT NULL)
-        OR (proposal_type = 'new_chapter')
+        OR (proposal_type = 'new_chapter' AND base_version_id IS NULL AND (status = 'published' OR chapter_id IS NULL))
     ),
     -- Non-draft proposals require a non-empty edit summary (E-03)
     CONSTRAINT chk_submitted_summary CHECK (
@@ -315,6 +342,16 @@ CREATE TABLE proposals (
     -- Two-Person Integrity on Claim & Review (C-06)
     CONSTRAINT chk_no_self_claim CHECK (claimed_by IS NULL OR claimed_by <> author_id),
     CONSTRAINT chk_no_self_review CHECK (reviewed_by IS NULL OR reviewed_by <> author_id),
+    -- Claim lease metadata consistency when status = 'in_review' (C-02)
+    CONSTRAINT chk_in_review_claim CHECK (
+        status <> 'in_review'
+        OR (claimed_by IS NOT NULL AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL)
+    ),
+    -- Publication provenance consistency when status = 'published' (C-04)
+    CONSTRAINT chk_published_provenance CHECK (
+        status <> 'published'
+        OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND published_version_id IS NOT NULL)
+    ),
     -- Mandatory reason on Request Changes or Reject (C-05)
     CONSTRAINT chk_decision_reason CHECK (
         status NOT IN ('changes_requested', 'rejected')
@@ -348,7 +385,7 @@ CREATE TABLE proposal_contributors (
     PRIMARY KEY (proposal_id, user_id)
 );
 
--- 14. Immutable Proposal Revision Snapshots (E-08, E-09)
+-- 14. Immutable Proposal Revision Snapshots (E-05, E-08, E-09)
 CREATE TABLE proposal_revisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     proposal_id UUID NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
@@ -356,17 +393,19 @@ CREATE TABLE proposal_revisions (
     base_version_id UUID REFERENCES chapter_versions(id) ON DELETE RESTRICT,
     title TEXT NOT NULL,
     content_markdown TEXT NOT NULL,
+    citations_json JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(citations_json) = 'array'),
+    prerequisite_chapter_ids UUID[] NOT NULL DEFAULT '{}',
     edit_summary TEXT NOT NULL,
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (proposal_id, revision_number)
 );
 
--- 15. Numbered Source Citations (E-05)
+-- 15. Numbered Source Citations on Active Proposals (E-05)
+-- When a proposal is published (C-04), its citations are snapshotted into chapter_versions.citations_json
 CREATE TABLE proposal_citations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     proposal_id UUID NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
-    chapter_version_id UUID REFERENCES chapter_versions(id) ON DELETE SET NULL,
     citation_number SMALLINT NOT NULL CHECK (citation_number > 0),
     source_title TEXT NOT NULL CHECK (char_length(btrim(source_title)) > 0),
     source_url TEXT CHECK (source_url IS NULL OR source_url ~ '^https?://'),
@@ -564,6 +603,74 @@ CREATE TRIGGER trg_proposal_revisions_immutable
 CREATE TRIGGER trg_audit_events_immutable
     BEFORE UPDATE OR DELETE ON audit_events
     FOR EACH ROW EXECUTE FUNCTION prevent_immutable_table_mutation();
+
+-- Automatically synchronize chapters.search_tsv from active chapter_versions (U-03)
+CREATE OR REPLACE FUNCTION sync_chapter_search_tsv()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_title TEXT;
+    v_content TEXT;
+BEGIN
+    IF NEW.current_version_id IS NOT NULL AND (
+        TG_OP = 'INSERT'
+        OR NEW.current_version_id IS DISTINCT FROM OLD.current_version_id
+        OR NEW.title IS DISTINCT FROM OLD.title
+    ) THEN
+        SELECT title, content_markdown
+          INTO v_title, v_content
+          FROM chapter_versions
+         WHERE id = NEW.current_version_id;
+
+        NEW.search_tsv :=
+            setweight(to_tsvector('english', coalesce(v_title, NEW.title, '')), 'A') ||
+            setweight(to_tsvector('english', coalesce(v_content, '')), 'B');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_chapters_sync_search_tsv
+    BEFORE INSERT OR UPDATE OF current_version_id, title ON chapters
+    FOR EACH ROW EXECUTE FUNCTION sync_chapter_search_tsv();
+```
+
+---
+
+### 3.6 `sqlc` Compiler & Go Type Mapping Contract (`apps/api/sqlc.yaml`)
+
+To avoid verbose `pgtype.UUID`, `pgtype.Timestamptz`, and `pgtype.Text` conversions between `sqlc` repository structs and Huma OpenAPI 3.1 DTOs, `apps/api/sqlc.yaml` must configure native Go pointer and UUID/time overrides when Stage 0/1 migrations are compiled:
+
+```yaml
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "sql/schema"
+    queries: "sql/queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/repository/db"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
 ```
 
 ---
@@ -587,14 +694,17 @@ CREATE TRIGGER trg_audit_events_immutable
 
 ---
 
-## 5. Schema Assumptions & Open Questions
+## 5. Schema Assumptions & Resolved Stakeholder Decisions
 
 ### 5.1 Marked Assumptions
 - **`[ASSUMPTION-S1]` UUID Primary Keys Replacing Template `TEXT`:** The starter template's `001_users.sql` used `id TEXT PRIMARY KEY`. The contract standardizes on `UUID` across all 22 tables to align with Supabase `auth.users.id` and compact 16-byte indexing.
-- **`[ASSUMPTION-S2]` PostgreSQL Native Full-Text Search (`U-03`):** `chapters.search_tsv` (weighted `'A'` for chapter `title` and `'B'` for `content_markdown` from `current_version_id`) powers keyword search in `U-03` without introducing an external Elasticsearch/Typesense cluster in MVP.
-- **`[ASSUMPTION-S3]` Structured JSONB for AI Sub-Sections (`U-05`–`U-08`, `U-10`):** Because term definitions, analogy steps, analogy limits, and feedback arrays are always read and rendered together as an atomic card per explanation/attempt, storing them as validated `JSONB` columns on `ai_explanations` and `reexplanation_attempts` avoids 6-way joins on every sidebar open while preserving `CHECK` constraints on array cardinality.
+- **`[ASSUMPTION-S2]` PostgreSQL Native Full-Text Search (`U-03`):** `chapters.search_tsv` (weighted `'A'` for chapter `title` and `'B'` for `content_markdown` from `current_version_id`, maintained automatically by `trg_chapters_sync_search_tsv`) powers keyword search in `U-03` without introducing an external Elasticsearch/Typesense cluster in MVP.
+- **`[ASSUMPTION-S3]` Structured JSONB for AI Sub-Sections & Published Citations (`U-05`–`U-08`, `U-10`, `E-05`):** Because term definitions, analogy steps, analogy limits, feedback arrays, and published chapter citations are always read and rendered together as atomic snapshots, storing them as validated `JSONB` columns (`citations_json` on `chapter_versions`/`proposal_revisions`, and structured `JSONB` arrays on `ai_explanations`/`reexplanation_attempts`) avoids multi-way joins while preserving `CHECK` constraints on array types and cardinality.
 
-### 5.2 Open Questions Remaining
-1. **Q1 — Seeded Job Fields (`U-01`):** Beyond the five examples named in the specification (*F&B*, *Retail*, *Logistics*, *Healthcare*, *Construction*), what is the complete initial list of `job_fields` to seed in Stage 1?
-2. **Q2 — Initial Chapter Seed Attribution (`C-06`):** Because `chapter_versions` enforces `CHECK (author_id <> checker_id)`, should initial seeded chapters be attributed to two distinct system accounts (`system-author` and `system-checker`), or should `checker_id` be nullable only when `source_proposal_id IS NULL` (initial system seed)?
+### 5.2 Resolved Stakeholder Decisions
+1. **D1 — 10-Field Starter Catalog for `job_fields` (`U-01`):** Approved 10 initial job fields (`fnb`, `retail`, `logistics`, `healthcare`, `construction`, `hospitality`, `manufacturing`, `office_admin`, `automotive`, `childcare_education`) seeded idempotently via `ON CONFLICT (code) DO NOTHING` (§3.1).
+2. **D2 — Provenance & Two-Person Integrity on `chapter_versions` (`U-03`, `C-04`, `C-06`, `C-08`):** Approved `chk_version_provenance` (§3.2) so proposal publications strictly enforce `author_id <> checker_id` (`C-06`), rollbacks (`C-08`) require a `checker_id` and non-empty `rollback_reason` (without failing if the Checker originally authored the restored target version), and initial curriculum seeds (`U-03`) permit `checker_id IS NULL` when `source_proposal_id IS NULL AND rollback_from_version_id IS NULL`.
+3. **D3 — Immutable Citations Snapshot (`E-05`, `C-08`):** Approved `citations_json JSONB` on `chapter_versions` and `proposal_revisions` so published, seeded, and rolled-back versions carry immutable citation snapshots alongside `proposal_citations` for active drafts/reviews.
+4. **D4 — Proposal State-Machine Constraints & Prerequisite Links (`C-02`, `C-04`, `U-08`):** Approved `chk_in_review_claim` and `chk_published_provenance` on `proposals`, plus `proposed_prerequisite_chapter_ids UUID[]` on `proposals` and `prerequisite_chapter_ids UUID[]` on `proposal_revisions`.
+5. **D5 — `sqlc` Native Go Pointer & UUID/Time Overrides:** Approved `emit_pointers_for_null_types: true` and `uuid`/`timestamptz` overrides in `apps/api/sqlc.yaml` (§3.6).
 
