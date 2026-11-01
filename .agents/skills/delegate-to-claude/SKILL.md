@@ -16,11 +16,12 @@ You are the Architect and Code Reviewer. You are FORBIDDEN from writing or editi
 
 2. **Delegate (Call Claude):**
    - Once the plan is ready to be built, run the following terminal command to force Claude Code to build it headlessly:
-     `claude -p "Read docs/plans/Pending/<feature-name>.md. Implement all files described to match the existing codebase. Run tests to verify it works and fix any errors." --dangerously-skip-permissions`
+     `claude -p "Read .agent/rules/project_guardrails.md and docs/plans/Pending/<feature-name>.md. Implement all files described to match the existing codebase. Run tests to verify it works and fix any errors. Write the command verification output to docs/verification/<feature-name>.md." --dangerously-skip-permissions`
 
 3. **Review (Loop Max 3 Times):**
    - Once Claude finishes, inspect the files Claude created/modified.
    - Check for logic bugs, security holes, and missing requirements from `docs/plans/Pending/<feature-name>.md`.
+   - Audit the diff against `.agent/rules/project_guardrails.md` and verify `docs/verification/<feature-name>.md` before approving.
    - Do NOT nitpick code style or formatting.
    - Write your review into `docs/reviews/<feature-name>-review.md` starting with either `STATUS: APPROVED` or `STATUS: REJECTED`.
 

@@ -1,5 +1,15 @@
 package domain
 
+import (
+	"context"
+	"errors"
+)
+
+var (
+	ErrUserNotFound        = errors.New("user not found")
+	ErrDatabaseUnavailable = errors.New("database unavailable")
+)
+
 type User struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
@@ -7,5 +17,5 @@ type User struct {
 }
 
 type UserRepository interface {
-	GetByID(id string) (*User, error)
+	GetByID(ctx context.Context, id string) (*User, error)
 }

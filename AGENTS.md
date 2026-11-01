@@ -48,7 +48,7 @@ Invoke each skill at its trigger (if installed in `.agents/skills` or global ski
 
 ## 6. Project Architecture, Workflows & Guardrails (`turbo-next-go-template`)
 
-Turborepo + pnpm monorepo featuring a Next.js (App Router) web app and an independent Go 1.24 HTTP microservice (Huma + `sqlc`).
+Turborepo + pnpm monorepo featuring a Next.js (App Router) web app and an independent Go 1.26 HTTP microservice (Huma + `sqlc`).
 
 ### Architecture & Layout
 - `apps/web`: Next.js frontend application with Tailwind CSS and React. Uses Vitest for unit/integration testing.
@@ -72,5 +72,6 @@ Turborepo + pnpm monorepo featuring a Next.js (App Router) web app and an indepe
 2. **Database Queries:** No raw, hand-written inline SQL strings in Go handler logic. Write pure SQL under `apps/api/sql/queries/*.sql` and compile them using `sqlc`.
 3. **CI/CD Hygiene:**
    - Security auditing runs on every commit via Gitleaks (secret detection) and Google OSV Scanner.
-   - All Go builds, tests, and Vitest suites must pass on Node 22 and Go 1.24 runners before merging to `main`.
+   - All Go builds, tests, and Vitest suites must pass on Node 22 and Go 1.26 runners before merging to `main`.
 4. **Environment Variables:** Commits must never include raw secrets or production credentials. Store development fallbacks in `.env.example`.
+5. **Mandatory Reading:** Read [`.agent/rules/project_guardrails.md`](.agent/rules/project_guardrails.md) and [`docs/architecture/architectural_decisions.md`](docs/architecture/architectural_decisions.md) before planning, building, or reviewing code.

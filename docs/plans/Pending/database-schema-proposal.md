@@ -1,8 +1,8 @@
 # Database Schema & Persistence Contract
 
-> **Status:** Accepted (Schema-First Contract)  
+> **Status:** Proposed — Pending approval (not implemented)  
 > **Engine:** PostgreSQL 16+ · **Driver:** `jackc/pgx/v5` · **Compiler:** `sqlc` (`apps/api/sqlc.yaml`)  
-> **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
+> **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
 ---
 

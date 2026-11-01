@@ -2,7 +2,7 @@
 
 > **Status:** Accepted (Foundational Contract)  
 > **Scope:** Idep MVP (`Must`) & Fast-Follow (`Should` / `Could`) across all 33 User Stories (`U-01`–`U-13`, `E-01`–`E-10`, `C-01`–`C-10`)  
-> **Related Contracts:** [`database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) · [`database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
+> **Related Contracts:** [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
 ---
 
@@ -41,7 +41,7 @@ Idep is governed by seven non-negotiable engineering principles:
 ## 3. System Topology, Security Boundaries & Service Ownership (ADR-001)
 
 ### 3.1 Context & Problem
-The monorepo contains a Next.js 16 frontend (`apps/web`), a Go 1.24 HTTP API (`apps/api`), Supabase client libraries (`@supabase/ssr`), and PostgreSQL (`pgx/v5` + `sqlc`). Without strict boundary ownership, business rules (such as Maker–Checker separation or guest metering) risk being split between frontend Supabase calls and backend Go handlers.
+The monorepo contains a Next.js 16 frontend (`apps/web`), a Go 1.26 HTTP API (`apps/api`), Supabase client libraries (`@supabase/ssr`), and PostgreSQL (`pgx/v5` + `sqlc`). Without strict boundary ownership, business rules (such as Maker–Checker separation or guest metering) risk being split between frontend Supabase calls and backend Go handlers.
 
 ### 3.2 Decision
 `apps/api` is the **sole authoritative domain, governance, storage-signing, and AI orchestration boundary**. `apps/web` acts strictly as the presentation and session-forwarding tier.
@@ -61,7 +61,7 @@ flowchart LR
         SupaAuth["Supabase Auth\n(JWT Issuance & OAuth/Email)"]
     end
 
-    subgraph APIBoundary["Authoritative Domain Tier (apps/api - Go 1.24 + Chi + Huma)"]
+    subgraph APIBoundary["Authoritative Domain Tier (apps/api - Go 1.26 + Chi + Huma)"]
         AuthMW["JWT & Guest Token Middleware\n(Fail-Closed RBAC)"]
         ReaderSvc["Curriculum & Guest Metering Service"]
         EditorialSvc["Maker-Checker & Versioning Service"]

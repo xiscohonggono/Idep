@@ -19,7 +19,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
 
       - name: Run Go Vet & Test
@@ -27,6 +27,7 @@ jobs:
         run: |
           go vet ./...
           go test -v ./...
+          go build -o bin/server ./cmd/server
 
   test-web:
     name: Web Frontend (Vitest & Lint)
@@ -34,6 +35,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -44,7 +51,51 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Install Dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Lint (All Workspaces)
+        run: pnpm lint
+
+      - name: Run Type Check
+        run: pnpm --filter web check-types
 
       - name: Run Tests
         run: pnpm --filter web test
+
+      - name: Build Web Bundle
+        run: pnpm --filter web build
+
+  codegen-drift:
+    name: Codegen Drift Gate (Huma SSOT)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup sqlc
+        uses: sqlc-dev/setup-sqlc@v3
+        with:
+          sqlc-version: '1.31.1'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate Contracts
+        run: pnpm codegen
+
+      - name: Fail on Contract Drift
+        run: git diff --exit-code -- apps/api/openapi.json apps/web/lib/api/schema.d.ts apps/api/internal/repository/db

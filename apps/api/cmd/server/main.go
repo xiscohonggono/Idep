@@ -26,29 +26,36 @@ type HealthOutput struct {
 }
 
 func main() {
-	ctx := context.Background()
+	// Routes are registered before any database work so that exporting the
+	// OpenAPI contract needs neither DATABASE_URL nor a reachable database.
+	userRepo := repository.NewPostgresUserRepository(nil)
+	router, api := newAPI(service.NewUserService(userRepo))
 
-	// Initialize pgxpool connection
-	dbURL := os.Getenv("DATABASE_URL")
-	var pool *pgxpool.Pool
-
-	if dbURL != "" {
-		poolConfig, err := pgxpool.ParseConfig(dbURL)
-		if err == nil {
-			pool, _ = pgxpool.NewWithConfig(ctx, poolConfig)
+	// Export OpenAPI contract flag
+	if len(os.Args) > 1 && os.Args[1] == "--export-openapi" {
+		b, err := json.MarshalIndent(api.OpenAPI(), "", "  ")
+		if err != nil {
+			log.Fatalf("Failed to marshal OpenAPI: %v", err)
 		}
+		if err := os.WriteFile("openapi.json", b, 0644); err != nil {
+			log.Fatalf("Failed to write openapi.json: %v", err)
+		}
+		fmt.Println("Generated openapi.json successfully")
+		return
 	}
 
-	// 1. Wire sqlc repository
-	userRepo := repository.NewPostgresUserRepository(pool)
+	userRepo.SetPool(openPool(context.Background()))
 
-	// 2. Wire business service layer
-	userService := service.NewUserService(userRepo)
+	port := ":8080"
+	fmt.Printf("Go API server running on http://localhost%s\n", port)
+	fmt.Printf("OpenAPI interactive docs at http://localhost%s/docs\n", port)
+	if err := http.ListenAndServe(port, router); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
+}
 
-	// 3. Wire HTTP handler layer
-	userHandler := handler.NewUserHandler(userService)
-
-	// 4. Setup Chi router and Huma API adapter
+// newAPI builds the router and registers every Huma operation.
+func newAPI(userService *service.UserService) (*chi.Mux, huma.API) {
 	router := chi.NewMux()
 	api := humachi.New(router, huma.DefaultConfig("Turbo Next Go API", "1.0.0"))
 
@@ -65,26 +72,28 @@ func main() {
 		return resp, nil
 	})
 
-	// Mount existing handlers under standard Chi routes
-	router.Mount("/api/v1/users", userHandler)
+	handler.RegisterUserRoutes(api, userService)
 
-	// Export OpenAPI contract flag
-	if len(os.Args) > 1 && os.Args[1] == "--export-openapi" {
-		b, err := json.MarshalIndent(api.OpenAPI(), "", "  ")
-		if err != nil {
-			log.Fatalf("Failed to marshal OpenAPI: %v", err)
-		}
-		if err := os.WriteFile("openapi.json", b, 0644); err != nil {
-			log.Fatalf("Failed to write openapi.json: %v", err)
-		}
-		fmt.Println("Generated openapi.json successfully")
-		return
+	return router, api
+}
+
+// openPool returns nil when DATABASE_URL is unset, so DB-backed operations
+// answer 503. A configured but invalid database is fatal.
+func openPool(ctx context.Context) *pgxpool.Pool {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Println("WARNING: DATABASE_URL is not set; database-backed operations will return 503")
+		return nil
 	}
 
-	port := ":8080"
-	fmt.Printf("Go API server running on http://localhost%s (sqlc + pgx pool active)\n", port)
-	fmt.Printf("OpenAPI interactive docs at http://localhost%s/docs\n", port)
-	if err := http.ListenAndServe(port, router); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		// The parse error can quote the URL, so it is not logged.
+		log.Fatalf("Invalid DATABASE_URL")
 	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		log.Fatalf("Failed to create database pool: %v", err)
+	}
+	return pool
 }

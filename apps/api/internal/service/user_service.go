@@ -2,6 +2,7 @@ package service
 
 import (
 	"api/internal/domain"
+	"context"
 	"errors"
 )
 
@@ -13,9 +14,9 @@ func NewUserService(repo domain.UserRepository) *UserService {
 	return &UserService{repo: repo}
 }
 
-func (s *UserService) GetUserProfile(id string) (*domain.User, error) {
+func (s *UserService) GetUserProfile(ctx context.Context, id string) (*domain.User, error) {
 	if id == "" {
 		return nil, errors.New("user ID cannot be empty")
 	}
-	return s.repo.GetByID(id)
+	return s.repo.GetByID(ctx, id)
 }

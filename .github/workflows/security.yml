@@ -38,4 +38,5 @@ jobs:
         with:
           scan-args: |-
             --lockfile=apps/api/go.sum
+            --lockfile=pnpm-lock.yaml
             --skip-git

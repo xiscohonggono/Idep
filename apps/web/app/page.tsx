@@ -1,22 +1,17 @@
-import { userService } from '../lib/api';
+import { getUser } from '@/lib/api';
 
 export default async function HomePage() {
-  const user = await userService.getUser('101');
-  const provider = process.env.NEXT_PUBLIC_BACKEND_PROVIDER || 'supabase';
+  let result: string;
+  try {
+    result = JSON.stringify(await getUser('101'), null, 2);
+  } catch (err) {
+    result = err instanceof Error ? err.message : String(err);
+  }
 
   return (
-    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Architecture Switch Demo</h1>
-      <p>
-        <strong>Current Backend Mode:</strong>{' '}
-        <span style={{ color: provider === 'go' ? 'green' : 'blue' }}>
-          {provider.toUpperCase()}
-        </span>
-      </p>
-      <h3>User Data Received:</h3>
-      <pre style={{ background: '#f4f4f4', padding: '1rem', borderRadius: '6px' }}>
-        {JSON.stringify(user, null, 2)}
-      </pre>
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 font-sans">
+      <h1 className="text-2xl font-bold">Go API Demo</h1>
+      <pre className="rounded-md bg-gray-100 text-sm text-gray-900">{result}</pre>
     </main>
   );
 }

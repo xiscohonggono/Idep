@@ -14,8 +14,8 @@ Idep is developed specification-first under a documentation-led onboarding model
 | :--- | :--- |
 | **[`README.md`](file:///home/xiscohonggono/projects/Idep/README.md)** | Project overview, business scope & non-goals, domain actors, user journeys, 33-story catalog, and developer onboarding. |
 | **[`docs/architecture/architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md)** | Architecture Decision Records (ADRs 001–006): service ownership, security boundaries, composable RBAC, Maker–Checker state machine, grounded AI pipeline, privacy/retention, and reliability/failure modes. |
-| **[`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md)** | Authoritative PostgreSQL DDL contract (22 tables across 4 domains), ER diagram, database-enforced invariants, access patterns, and indexing strategy. |
-| **[`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md)** | Safe staged rollout plan (`Expand → Migrate → Verify → Contract`) across Stages 0–4, zero-downtime DDL rules, rollback playbooks, and verification gates. |
+| **[`docs/plans/Pending/database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md)** | Proposed (pending approval) PostgreSQL DDL contract (22 tables across 4 domains), ER diagram, database-enforced invariants, access patterns, and indexing strategy. |
+| **[`docs/plans/Pending/database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md)** | Proposed (pending approval) staged rollout plan (`Expand → Migrate → Verify → Contract`) across Stages 0–4, zero-downtime DDL rules, rollback playbooks, and verification gates. |
 | **[`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)** | Explicit *"What Is Not Allowed"* prohibitions, fail-closed governance checklist, operational constraints, and dual-agent workflow rules. |
 
 ---
@@ -31,12 +31,12 @@ All foundational and feature work follows a strict **ADRs → Schema → Rollout
    - **AI Grounding & Structured Evaluation Pipeline**: Prompting, grounding constraints (strictly anchored to chapter text per `U-04`), structured output contracts for term definitions (`U-05`), step-by-step job-field analogies (`U-06`), analogy limits (`U-07`), prerequisite chapter resolution (`U-08`), and iterative re-explanation grading (`U-09`, `U-10`).
    - **Sensitive Document Handling**: Access controls, short-lived signed URLs, and post-decision purge schedule for licensed educator verification proofs (`E-02`).
 
-2. **Database Schema & Type-Safe Contracts ([`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) → `apps/api/sql/` → `pnpm codegen`)**
-   Define PostgreSQL migrations and `sqlc` queries before implementing handlers or frontend components:
+2. **Database Schema & Type-Safe Contracts ([`docs/plans/Pending/database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) → `apps/api/sql/` → `pnpm codegen`)**
+   Propose the database schema in `docs/plans/Pending/database-schema-proposal.md`; once approved and implemented, add migrations/queries under `apps/api/sql/` and run `pnpm codegen`.
    - Core tables covering users, role assignments, user work-experience profiles, subjects, chapters, immutable chapter versions, edit/new-chapter proposals, citations, line comments, educator verification requests, checker applications/revocations, learner highlights/explanations, re-explanation attempts, quality reports, notifications, and audit events.
-   - Register Huma (OpenAPI 3.1) contracts in `apps/api` and run `pnpm codegen` so `apps/web/lib/api/schema.d.ts` stays the single source of truth across the full stack.
+   - Register Huma (OpenAPI 3.1) contracts in `apps/api` and run `pnpm codegen`. The chain is explicit: *Huma operations in `apps/api` → `apps/api/openapi.json` → `apps/web/lib/api/schema.d.ts` (generated, never hand-edited).*
 
-3. **Phased Rollout ([`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md), [`docs/plans/`](file:///home/xiscohonggono/projects/Idep/docs/plans/) & [`docs/verification/`](file:///home/xiscohonggono/projects/Idep/docs/verification/))**
+3. **Phased Rollout ([`docs/plans/Pending/database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md), [`docs/plans/`](file:///home/xiscohonggono/projects/Idep/docs/plans/) & [`docs/verification/`](file:///home/xiscohonggono/projects/Idep/docs/verification/))**
    Deliver the 33 user stories in priority order (**Must** for initial MVP release, **Should** for fast-follow, **Could** for post-MVP), tracking implementation plans in `docs/plans/Pending/` → `docs/plans/Implemented/` and validation evidence in `docs/verification/`.
 
 ---
@@ -201,7 +201,7 @@ Stories use **MoSCoW** prioritization: **Must** (required for first release / MV
 
 ## Operating Context & Repository Structure
 
-Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) web application with a Go 1.24 HTTP microservice.
+Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) web application with a Go 1.26 HTTP microservice.
 
 ```text
 .
@@ -211,11 +211,11 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 ├── .agents/
 │   └── skills/                             # Agent workflow skills (delegate-to-claude, migration, ponytail, etc.)
 ├── apps/
-│   ├── api/                                # Go 1.24 HTTP backend (Chi + Huma OpenAPI 3.1 + sqlc + pgx/v5)
+│   ├── api/                                # Go 1.26 HTTP backend (Chi + Huma OpenAPI 3.1 + sqlc + pgx/v5)
 │   │   ├── cmd/server/                     # Service entrypoint & --export-openapi exporter
 │   │   ├── internal/                       # Domain packages, services, Huma handlers, middleware, and sqlc db
 │   │   ├── sql/
-│   │   │   ├── schema/                     # Staged PostgreSQL DDL migrations (001..008)
+│   │   │   ├── schema/                     # PostgreSQL DDL consumed by sqlc (bootstrap: 001_users.sql)
 │   │   │   └── queries/                    # Compiled sqlc query files (*.sql)
 │   │   ├── sqlc.yaml                       # sqlc compiler configuration
 │   │   └── openapi.json                    # Generated OpenAPI 3.1 contract
@@ -224,10 +224,11 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 ├── packages/                               # Shared UI components (@repo/ui), ESLint, and TypeScript configs
 ├── docs/
 │   ├── architecture/
-│   │   ├── architectural_decisions.md      # ADRs (ADR-001 through ADR-006)
-│   │   ├── database_schema.md              # PostgreSQL schema contract & access patterns
-│   │   └── database_staging_plan.md        # Staged migration & rollback plan (Stages 0–4)
+│   │   └── architectural_decisions.md      # ADRs (ADR-001 through ADR-006)
 │   ├── plans/                              # Implementation ledger (Pending/ and Implemented/)
+│   │   └── Pending/
+│   │       ├── database-schema-proposal.md  # Proposed PostgreSQL schema (pending approval)
+│   │       └── database-staging-proposal.md # Proposed staged migration & rollback plan (pending approval)
 │   ├── reviews/                            # Architectural and code review artifacts
 │   └── verification/                       # Test logs, rollout checks, and validation evidence
 ├── AGENTS.md                               # Global & repository engineering instructions
@@ -243,7 +244,7 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 ### 1. Required Reading Order for New Engineers & Agents
 1. Read this [`README.md`](file:///home/xiscohonggono/projects/Idep/README.md) for product domain and user story scope.
 2. Read [`docs/architecture/architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) and [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md) to internalize security boundaries, fail-closed governance, and *"What Is Not Allowed"* rules.
-3. Inspect [`docs/architecture/database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) and [`docs/architecture/database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md) before touching `apps/api/sql/`.
+3. Inspect [`docs/plans/Pending/database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) and [`docs/plans/Pending/database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) before touching `apps/api/sql/`.
 4. Check [`docs/plans/Pending/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/) and [`docs/plans/Implemented/`](file:///home/xiscohonggono/projects/Idep/docs/plans/Implemented/) to see current delivery state.
 
 ### 2. Core Commands

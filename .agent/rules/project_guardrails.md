@@ -2,9 +2,12 @@
 
 > **Scope:** Mandatory rules for all human engineers and AI agents (`Gemini` Architect/Reviewer and `Claude Code` Builder).  
 > **Precedence:** Safety & Boundaries > Fail-Closed Governance & Invariants > Schema & Codegen Discipline > Ponytail Minimalism.  
-> **Related Contracts:** [`AGENTS.md`](file:///home/xiscohonggono/projects/Idep/AGENTS.md) · [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database_schema.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_schema.md) · [`database_staging_plan.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/database_staging_plan.md)
+> **Related Contracts:** [`AGENTS.md`](file:///home/xiscohonggono/projects/Idep/AGENTS.md) · [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md)
 
 ---
+
+> [!IMPORTANT]
+> **Domain Invariants vs. Proposed Schema Identifiers:** Domain invariants in §1 and §2 (Maker–Checker separation, append-only version history, mandatory governance reasons, grounded AI selections, private educator proofs, and transactional audit logging) are mandatory now. Specific SQL table and column identifiers shown in backticks (e.g., `chapter_versions`, `audit_events`) reflect [`docs/plans/Pending/database-schema-proposal.md`](../../docs/plans/Pending/database-schema-proposal.md) and take effect as each schema stage is approved and implemented.
 
 ## 1. Clear "What Is Not Allowed" Rules (Hard Prohibitions)
 
@@ -87,13 +90,7 @@ flowchart TD
 
 Inspection of the initial repository scaffold identified three template artifacts that violate Idep's fail-closed and contract-first guardrails and **must be removed during Stage 0 / Phase 1**:
 
-1. **Fail-Open Mock Fallback in [`apps/api/internal/repository/user_repo.go`](file:///home/xiscohonggono/projects/Idep/apps/api/internal/repository/user_repo.go#L41-L46):**
-   - *Current issue:* Returns a hardcoded `"Demo User (sqlc + pgx layer)"` when `r.queries` is nil or `GetUserByID` returns an error.
-   - *Required fix:* Return a typed domain error (`ErrNotFound` / `ErrDatabaseUnavailable`) and fail closed.
-2. **Uncontracted Chi Route in [`apps/api/cmd/server/main.go`](file:///home/xiscohonggono/projects/Idep/apps/api/cmd/server/main.go#L69):**
-   - *Current issue:* `router.Mount("/api/v1/users", userHandler)` uses a raw `http.Handler` instead of `huma.Register`, so `/api/v1/users/{id}` is missing from `apps/api/openapi.json` and `apps/web/lib/api/schema.d.ts`.
-   - *Required fix:* Migrate all `/api/v1/*` endpoints to `huma.Register` operations so OpenAPI 3.1 codegen covers 100% of the API surface.
-3. **Duplicate SQL File [`apps/api/internal/users.sql`](file:///home/xiscohonggono/projects/Idep/apps/api/internal/users.sql):**
-   - *Current issue:* Duplicates `apps/api/sql/schema/001_users.sql` outside the `sqlc.yaml` configured directories (`sql/schema` and `sql/queries`).
-   - *Required fix:* Delete `apps/api/internal/users.sql` and keep all SQL strictly under `apps/api/sql/`.
+1. **Fail-Open Mock Fallback in [`apps/api/internal/repository/user_repo.go`](file:///home/xiscohonggono/projects/Idep/apps/api/internal/repository/user_repo.go):** Resolved by `stage-0-baseline-cleanup`.
+2. **Uncontracted Chi Route in [`apps/api/cmd/server/main.go`](file:///home/xiscohonggono/projects/Idep/apps/api/cmd/server/main.go):** Resolved by `stage-0-baseline-cleanup`.
+3. Empty untracked directories `apps/api/internal/users.sql/`, `internal/handlers/`, `internal/config/` — removed locally by `stage-0-baseline-cleanup`.
 

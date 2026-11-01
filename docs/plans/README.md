@@ -1,6 +1,6 @@
 # Implementation Ledger (`docs/plans/`)
 
-This directory serves as the project's implementation ledger for tracking project delivery status, evidence, boundaries, and remaining work for the CRM implementation, rather than describing the runtime behavior of the application itself.
+This directory serves as the project's implementation ledger for tracking project delivery status, evidence, boundaries, and remaining work, rather than describing the runtime behavior of the application itself.
 
 These plans maintain a clear, authoritative index of:
 - What was implemented

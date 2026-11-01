@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "go run ./cmd/server",
     "build": "go build -o bin/server ./cmd/server",
+    "lint": "go vet ./...",
+    "test": "go test ./...",
     "codegen": "sqlc generate && go run ./cmd/server --export-openapi"
   }
 }
