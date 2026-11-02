@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pressly/goose/v3"
 )
 
 func connect(t *testing.T, dsn string) *pgx.Conn {
@@ -77,6 +78,26 @@ func schemaObjects(t *testing.T, conn *pgx.Conn) (tables, functions int) {
 	return tables, functions
 }
 
+func newChapter(t *testing.T, conn *pgx.Conn) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	mustExec(t, conn, `
+		INSERT INTO chapters (id, subject_id, slug, title, display_order)
+		SELECT $1, s.id, $2, 'Cells', 1 FROM subjects s WHERE s.slug = 'science'`, id, id.String())
+	return id
+}
+
+func newVersion(t *testing.T, conn *pgx.Conn, chapter, author uuid.UUID, number int) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	mustExec(t, conn, `
+		INSERT INTO chapter_versions (id, chapter_id, version_number, title, content_markdown, edit_summary, author_id)
+		VALUES ($1, $2, $3, 'Cells', 'Cells make energy.', 'Seed', $4)`, id, chapter, number, author)
+	return id
+}
+
 func TestSchemaInvariants(t *testing.T) {
 	conn := connect(t, New(t))
 
@@ -130,6 +151,103 @@ func TestSchemaInvariants(t *testing.T) {
 		}
 	})
 
+	t.Run("catalogs are seeded", func(t *testing.T) {
+		for table, want := range map[string]int{"job_fields": 10, "subjects": 4} {
+			var got int
+			if err := conn.QueryRow(context.Background(), "SELECT count(*) FROM "+table).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("%s has %d rows, want %d", table, got, want)
+			}
+		}
+	})
+
+	t.Run("chapter versions are append-only with valid provenance", func(t *testing.T) {
+		author := newUser(t, conn)
+		chapter := newChapter(t, conn)
+		version := newVersion(t, conn, chapter, author, 1)
+
+		for _, statement := range []string{
+			"UPDATE chapter_versions SET title = 'Tampered' WHERE id = $1",
+			"DELETE FROM chapter_versions WHERE id = $1",
+		} {
+			pgErr := execError(t, conn, statement, version)
+			if !strings.Contains(pgErr.Message, "Table chapter_versions is append-only") {
+				t.Fatalf("%s: message = %q", statement, pgErr.Message)
+			}
+		}
+
+		pgErr := execError(t, conn, `
+			INSERT INTO chapter_versions (chapter_id, version_number, title, content_markdown, edit_summary, author_id, checker_id)
+			VALUES ($1, 2, 'Cells', 'Text', 'Seed', $2, $2)`, chapter, author)
+		wantConstraint(t, pgErr, "chk_version_provenance")
+	})
+
+	const insertHighlight = `
+		INSERT INTO study_highlights (user_id, subject_id, chapter_id, chapter_version_id, selected_text, paragraph_count, start_offset, end_offset)
+		SELECT $1, c.subject_id, c.id, $3, $4, $5, 0, 20 FROM chapters c WHERE c.id = $2`
+
+	t.Run("highlights enforce selection bounds", func(t *testing.T) {
+		user := newUser(t, conn)
+		chapter := newChapter(t, conn)
+		version := newVersion(t, conn, chapter, user, 1)
+
+		pgErr := execError(t, conn, insertHighlight, user, chapter, version, "A long enough selection", 4)
+		wantConstraint(t, pgErr, "study_highlights_paragraph_count_check")
+
+		pgErr = execError(t, conn, insertHighlight, user, chapter, version, "  too short   ", 1)
+		wantConstraint(t, pgErr, "study_highlights_selected_text_check")
+	})
+
+	t.Run("AI tables enforce their invariants", func(t *testing.T) {
+		user := newUser(t, conn)
+		chapter := newChapter(t, conn)
+		version := newVersion(t, conn, chapter, user, 1)
+		mustExec(t, conn, insertHighlight, user, chapter, version, "A long enough selection", 1)
+
+		var highlight uuid.UUID
+		if err := conn.QueryRow(context.Background(), "SELECT id FROM study_highlights WHERE user_id = $1", user).Scan(&highlight); err != nil {
+			t.Fatal(err)
+		}
+
+		const insertExplanation = `
+			INSERT INTO ai_explanations (id, highlight_id, user_id, job_field_code, is_everyday_fallback, analogy_steps_json, analogy_limits_json, model_identifier, prompt_version)
+			VALUES ($1, $2, $3, $4, $5, '[]', $6, 'model', 'v1')`
+		const limits = `[{"analogy_limit": "a", "accurate_explanation": "b"}]`
+
+		pgErr := execError(t, conn, insertExplanation, uuid.New(), highlight, user, "fnb", false, "[]")
+		wantConstraint(t, pgErr, "ai_explanations_analogy_limits_json_check")
+
+		pgErr = execError(t, conn, insertExplanation, uuid.New(), highlight, user, "fnb", true, limits)
+		wantConstraint(t, pgErr, "chk_work_field_or_fallback")
+
+		explanation := uuid.New()
+		mustExec(t, conn, insertExplanation, explanation, highlight, user, "fnb", false, limits)
+
+		const insertElaboration = `
+			INSERT INTO ai_elaborations (explanation_id, user_id, target_section, target_index, is_on_topic, elaboration_markdown, model_identifier)
+			VALUES ($1, $2, $3, $4, $5, $6, 'model')`
+		pgErr = execError(t, conn, insertElaboration, explanation, user, "step", nil, true, "More")
+		wantConstraint(t, pgErr, "chk_elaboration_target_index")
+
+		pgErr = execError(t, conn, insertElaboration, explanation, user, "general", nil, false, nil)
+		wantConstraint(t, pgErr, "chk_elaboration_content_or_hint")
+
+		const insertFeedback = `
+			INSERT INTO ai_explanation_feedback (explanation_id, user_id, chapter_id, job_field_code, rating, comment)
+			VALUES ($1, $2, $3, 'fnb', $4, $5)`
+		pgErr = execError(t, conn, insertFeedback, explanation, user, chapter, "meh", nil)
+		wantConstraint(t, pgErr, "ai_explanation_feedback_rating_check")
+
+		pgErr = execError(t, conn, insertFeedback, explanation, user, chapter, "like", strings.Repeat("x", 501))
+		wantConstraint(t, pgErr, "ai_explanation_feedback_comment_check")
+
+		mustExec(t, conn, insertFeedback, explanation, user, chapter, "like", "Clicked")
+		pgErr = execError(t, conn, insertFeedback, explanation, user, chapter, "dislike", nil)
+		wantConstraint(t, pgErr, "ai_explanation_feedback_explanation_id_user_id_key")
+	})
+
 	t.Run("display name cannot be blank", func(t *testing.T) {
 		id := uuid.New()
 		pgErr := execError(t, conn,
@@ -144,8 +262,14 @@ func TestMigrationRollback(t *testing.T) {
 	p := newProvider(t, dsn)
 	ctx := context.Background()
 
-	if _, err := p.Down(ctx); err != nil {
-		t.Fatalf("down: %v", err)
+	for {
+		_, err := p.Down(ctx)
+		if errors.Is(err, goose.ErrNoNextVersion) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("down: %v", err)
+		}
 	}
 	if tables, functions := schemaObjects(t, conn); tables != 0 || functions != 0 {
 		t.Fatalf("after down: %d tables, %d functions remain", tables, functions)

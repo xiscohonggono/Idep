@@ -23,7 +23,7 @@ Violating any rule in this table is an automatic `STATUS: REJECTED` during archi
 | **Self-Approval (`C-06`)** | Allowing any user to claim (`C-02`), approve (`C-04`), or reject (`C-05`) a proposal they authored or co-authored. | Enforce `author_id <> checker_id` and contributor exclusion in UI, Go service layer, and PostgreSQL `CHECK` constraints. |
 | **Reasonless Governance Actions** | Submitting an edit without `edit_summary` (`E-03`), requesting changes/rejecting without a reason (`C-05`), rolling back without a reason (`C-08`), or revoking a Checker without a reason (`C-10`). | Validate `char_length(btrim(reason)) > 0` in both Huma input schemas and PostgreSQL `CHECK` constraints. |
 | **Silent Conflict Overwrites** | Publishing or submitting a proposal whose `base_version_id` no longer matches `chapters.current_version_id` (`E-09`). | Reject with `HTTP 409 Conflict` and require explicit diff resolution against the latest chapter version. |
-| **Ungrounded AI Chat (`U-04`)** | Exposing free-form chat prompts, accepting selections `> 3` paragraphs, or accepting `selected_text` not present in the target `chapter_version`. | Verify verbatim substring match and `1 <= paragraph_count <= 3` before calling the LLM. |
+| **Ungrounded AI Chat (`U-04`)** | Exposing unanchored open-ended chat prompts, accepting selections `> 3` paragraphs, accepting `selected_text` not present in the target `chapter_version`, or injecting unsanitized user feedback comments into LLM prompts. | Verify verbatim substring match and `1 <= paragraph_count <= 3` before calling the LLM; bound elaborations (`<= 300` chars) to an existing `ai_explanations` row with `is_on_topic` enforcement; wrap `ai_explanation_feedback.comment` (`<= 500` chars) in untrusted-data delimiters with zero cross-user PII exposure. |
 | **Missing Analogy Limits (`U-07`)** | Returning an AI work-experience analogy without a populated *"Where this comparison falls short"* section (`analogy_limits_json`). | Enforce `jsonb_array_length(analogy_limits_json) >= 1` in both Go schema validation and PostgreSQL `CHECK` constraints. |
 | **Hallucinated Links (`U-05`, `U-08`)** | Rendering AI-suggested term or prerequisite chapter links that do not resolve to an existing `published` chapter ID in PostgreSQL. | Validate and filter all LLM-returned chapter IDs/slugs against the live catalog before persisting or rendering. |
 | **Retroactive Profile Mutation (`U-02`)** | Modifying or regenerating previously saved `ai_explanations` when a user updates or deletes their work experience in `U-02`. | Store `job_field_code` and `role_title_snapshot` immutably on each `ai_explanations` row at creation time. |
@@ -78,8 +78,12 @@ flowchart TD
   - OLTP query context timeout: `5s` (standard reads/writes).
   - Migration lock timeout: `3s`; migration statement timeout: `30s`.
 - **AI Pipeline Timeouts & Quotas:**
+  - LLM provider: OpenAI (`gpt-4.1-mini` default via `github.com/openai/openai-go/v3`, `OPENAI_API_KEY`).
   - LLM request timeout: `15s` hard ceiling (`context.WithTimeout`).
+  - Per-user daily quota: `30` AI calls (explanations + elaborations) per rolling 24-hour window (`HTTP 429 Too Many Requests`).
   - Highlight input bounds: `1 <= paragraph_count <= 3`, `15 <= char_length <= 3000`.
+  - Elaboration prompt bounds: `0 <= char_length <= 300` (anchored to `explanation_id`).
+  - Feedback comment bounds: `1 <= char_length <= 500` (for both `like` and `dislike` ratings).
   - Schema repair retries: Maximum `1` retry on malformed JSON output before failing closed (`503`).
 - **Pagination Bounds:**
   - Every list endpoint must enforce `1 <= limit <= 50` (default `20`). Unbounded list queries are prohibited.

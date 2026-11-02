@@ -1,6 +1,6 @@
 # Database Staging & Safe Migration Rollout Plan
 
-> **Status:** Stage 0 implemented (`001_identity_and_rbac.sql`, `sqlc.yaml`, `cmd/migrate`); Stages 1–4 pending  
+> **Status:** Stages 0, 1 & 3 migrations implemented (`001`, `002`, `003`, `006`); Stages 2 & 4 pending  
 > **Lifecycle Pattern:** Expand → Migrate → Verify → Contract  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
@@ -52,7 +52,7 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
 | **Stage 0** *(Identity & RBAC Foundation)* | `001_identity_and_rbac.sql` *(replaces template `001_users.sql`)* + `apps/api/sqlc.yaml` overrides | Replaces template `users (id TEXT)` with `users (id UUID)`, `user_roles`, `audit_events` (`trg_audit_events_immutable`), and configures `sqlc.yaml` `uuid`/`timestamptz`/pointer overrides. | Foundation for all authenticated & audited flows |
 | **Stage 1** *(Phase 1 MVP: Onboarding, Reader & Guest Metering)* | `002_work_experience.sql`<br>`003_curriculum_and_guests.sql` | `job_fields` (10-field starter seed), `user_work_experiences`, `subjects` (4 GED subjects seed), `chapters` (`trg_chapters_sync_search_tsv`), `chapter_versions` (`chk_version_provenance`, `citations_json`, `trg_chapter_versions_immutable`), `chapter_prerequisites`, `guest_sessions`, `guest_chapter_reads` | `U-01`, `U-03`, `U-13` |
 | **Stage 2** *(Phase 2 MVP: Maker–Checker Core)* | `004_proposals_and_revisions.sql`<br>`005_checker_governance_and_notifications.sql` | `proposals` (`chk_in_review_claim`, `chk_published_provenance`), `proposal_contributors`, `proposal_revisions` (`trg_proposal_revisions_immutable`), `checker_applications`, `notifications` + FK `chapter_versions.source_proposal_id` | `E-01`, `E-03`, `E-07`, `E-08`, `C-01`, `C-03`, `C-04`, `C-05`, `C-06`, `C-09`, `C-10` |
-| **Stage 3** *(Phase 3 MVP: AI Sidebar & Active Recall)* | `006_study_highlights_and_ai.sql` | `study_highlights`, `ai_explanations`, `reexplanation_attempts` | `U-04`, `U-05`, `U-06`, `U-07`, `U-08`, `U-09`, `U-10` |
+| **Stage 3** *(Phase 3 MVP: AI Sidebar & Active Recall)* | `006_study_highlights_and_ai.sql` | `study_highlights`, `ai_explanations`, `ai_elaborations`, `ai_explanation_feedback`, `reexplanation_attempts` | `U-04`, `U-05`, `U-06`, `U-07`, `U-08`, `U-09`, `U-10` |
 | **Stage 4** *(Phase 4 Fast-Follow: Should & Could)* | `007_educator_verification.sql`<br>`008_citations_comments_and_reports.sql` | `educator_verifications`, `proposal_citations`, `proposal_line_comments`, `ai_quality_reports` | `U-02`, `U-11`, `U-12`, `E-02`, `E-04`, `E-05`, `E-06`, `E-09`, `E-10`, `C-02`, `C-07`, `C-08` |
 
 ---
@@ -97,13 +97,15 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
 
 ### 3.4 Stage 3: AI Study Sidebar & Active Recall (`006`)
 - **Forward Steps:**
-  1. Create `study_highlights`, `ai_explanations`, and `reexplanation_attempts`.
+  1. Create `study_highlights`, `ai_explanations`, `ai_elaborations`, `ai_explanation_feedback`, and `reexplanation_attempts`.
 - **Verification Gate:**
   - Confirm `study_highlights` rejects `paragraph_count = 4` (`U-04`).
   - Confirm `ai_explanations` rejects `analogy_limits_json = '[]'::jsonb` (`U-07`).
+  - Confirm `ai_elaborations` rejects `is_on_topic = FALSE` without `hint_text` (`chk_elaboration_content_or_hint`) and rejects `target_section = 'step'` with `target_index IS NULL` (`chk_elaboration_target_index`).
+  - Confirm `ai_explanation_feedback` enforces `rating IN ('like', 'dislike')`, `comment` length `1..500`, and `UNIQUE (explanation_id, user_id)`.
   - Confirm `reexplanation_attempts` with `is_graded = FALSE` and `hint_text = NULL` fails `chk_ungraded_hint` (`U-10`).
 - **Rollback Strategy:**
-  - Drop `reexplanation_attempts`, `ai_explanations`, `study_highlights`. Stage 1 reader and Stage 2 editorial workflows remain intact.
+  - Drop `reexplanation_attempts`, `ai_explanation_feedback`, `ai_elaborations`, `ai_explanations`, `study_highlights`. Stage 1 reader and Stage 2 editorial workflows remain intact.
 
 ### 3.5 Stage 4: Fast-Follow Enhancements (`007`–`008`)
 - **Forward Steps:**

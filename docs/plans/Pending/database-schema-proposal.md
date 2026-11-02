@@ -1,6 +1,6 @@
 # Database Schema & Persistence Contract
 
-> **Status:** Stage 0 implemented (`001_identity_and_rbac.sql` & `sqlc.yaml` overrides); Stages 1–4 pending  
+> **Status:** Stages 0, 1 & 3 migrations implemented (`001_identity_and_rbac.sql`, `002_work_experience.sql`, `003_curriculum_and_guests.sql`, `006_study_highlights_and_ai.sql`); Stages 2 & 4 pending  
 > **Engine:** PostgreSQL 16+ · **Driver:** `jackc/pgx/v5` · **Compiler:** `sqlc` (`apps/api/sqlc.yaml`)  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
@@ -42,6 +42,8 @@ erDiagram
     USERS ||--o{ STUDY_HIGHLIGHTS : "selects (U-04, U-09)"
     CHAPTER_VERSIONS ||--o{ STUDY_HIGHLIGHTS : "anchored to"
     STUDY_HIGHLIGHTS ||--o{ AI_EXPLANATIONS : "generates (U-05..U-08)"
+    AI_EXPLANATIONS ||--o{ AI_ELABORATIONS : "elaborates on"
+    AI_EXPLANATIONS ||--o{ AI_EXPLANATION_FEEDBACK : "rated in (like/dislike + comment)"
     STUDY_HIGHLIGHTS ||--o{ REEXPLANATION_ATTEMPTS : "graded in (U-09, U-10)"
     USERS ||--o{ AI_QUALITY_REPORTS : "flags (U-12)"
     USERS ||--o{ NOTIFICATIONS : "receives (E-07)"
@@ -502,6 +504,57 @@ CREATE TABLE ai_explanations (
 CREATE INDEX idx_ai_explanations_highlight
     ON ai_explanations (highlight_id, created_at DESC);
 
+-- 18b. Passage-Anchored AI Elaborations (Step / Term / Limit / General Deep-Dives)
+CREATE TABLE ai_elaborations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    explanation_id UUID NOT NULL REFERENCES ai_explanations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_section TEXT NOT NULL CHECK (target_section IN ('step', 'term', 'limit', 'general')),
+    target_index SMALLINT CHECK (target_index IS NULL OR target_index >= 0),
+    user_prompt TEXT CHECK (user_prompt IS NULL OR char_length(btrim(user_prompt)) BETWEEN 1 AND 300),
+    is_on_topic BOOLEAN NOT NULL,
+    hint_text TEXT,
+    elaboration_markdown TEXT,
+    work_example TEXT,
+    model_identifier TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_elaboration_target_index CHECK (
+        (target_section = 'general' AND target_index IS NULL)
+        OR (target_section IN ('step', 'term', 'limit') AND target_index IS NOT NULL)
+    ),
+    CONSTRAINT chk_elaboration_content_or_hint CHECK (
+        (is_on_topic = TRUE AND elaboration_markdown IS NOT NULL AND char_length(btrim(elaboration_markdown)) > 0)
+        OR (is_on_topic = FALSE AND hint_text IS NOT NULL AND char_length(btrim(hint_text)) > 0)
+    )
+);
+
+CREATE INDEX idx_ai_elaborations_explanation
+    ON ai_elaborations (explanation_id, created_at ASC);
+
+CREATE INDEX idx_ai_elaborations_user_quota
+    ON ai_elaborations (user_id, created_at DESC);
+
+CREATE INDEX idx_ai_explanations_user_quota
+    ON ai_explanations (user_id, created_at DESC);
+
+-- 18c. Learner Like / Dislike & Comment Feedback on AI Explanations (Profession Flywheel)
+CREATE TABLE ai_explanation_feedback (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    explanation_id UUID NOT NULL REFERENCES ai_explanations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    job_field_code TEXT REFERENCES job_fields(code) ON DELETE SET NULL,
+    rating TEXT NOT NULL CHECK (rating IN ('like', 'dislike')),
+    comment TEXT CHECK (comment IS NULL OR char_length(btrim(comment)) BETWEEN 1 AND 500),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (explanation_id, user_id)
+);
+
+CREATE INDEX idx_ai_explanation_feedback_profession_flywheel
+    ON ai_explanation_feedback (chapter_id, job_field_code, rating, updated_at DESC)
+    WHERE job_field_code IS NOT NULL;
+
 -- 19. Learner Re-Explanation Attempts & Iterative AI Feedback (U-09, U-10)
 CREATE TABLE reexplanation_attempts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -767,4 +820,5 @@ sql:
 4. **D4 — Proposal State-Machine Constraints & Prerequisite Links (`C-02`, `C-04`, `U-08`):** Approved `chk_in_review_claim` and `chk_published_provenance` on `proposals`, plus `proposed_prerequisite_chapter_ids UUID[]` on `proposals` and `prerequisite_chapter_ids UUID[]` on `proposal_revisions`.
 5. **D5 — `sqlc` Native Go Pointer & UUID/Time Overrides:** Approved `emit_pointers_for_null_types: true` and `uuid`/`timestamptz` overrides in `apps/api/sqlc.yaml` (§3.6).
 6. **D6 — Keyset Pagination Indexes, Guest Fingerprint Index & Co-Author Guard (`C-01`, `C-06`, `E-10`, `U-13`):** Added `idx_chapter_versions_author_history` (`E-10`, `C-09`), `idx_guest_sessions_fingerprint_created` (`U-13`), composite keyset tie-breakers on `idx_proposals_review_queue` / `idx_proposals_review_queue_subject` (`C-01`), and `enforce_proposal_coauthor_separation()` triggers enforcing `C-06` across `proposal_contributors`.
+7. **D7 — Passage-Anchored Elaborations & Profession Feedback Flywheel (`U-04`–`U-08`):** Added `ai_elaborations` (supporting step/term/limit/general deep-dives with `<= 300` char prompts and `is_on_topic` enforcement) and `ai_explanation_feedback` (supporting per-user `like`/`dislike` ratings + optional `<= 500` char comments on both likes and dislikes, indexed by `(chapter_id, job_field_code, rating)` to condition future explanations for learners in the same profession).
 

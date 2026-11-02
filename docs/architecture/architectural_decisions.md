@@ -208,14 +208,27 @@ sequenceDiagram
 
     Learner->>Web: Highlight passage (1-3 paragraphs) & tap "Explain" (U-04)
     Web->>API: POST /api/v1/chapters/{id}/explanations\n{version_id, selected_text, start_offset, end_offset, job_field_code?}
-    API->>DB: Verify auth, load chapter_version & user_work_experiences
+    API->>DB: Verify auth, check 30/24h user quota, load chapter_version & user_work_experiences
     API->>API: Validate paragraph_count (1..3) & exact substring match in chapter_version
-    API->>DB: Fetch catalog of published chapter (id, slug, title, subject) for link grounding
-    API->>LLM: Prompt with: [Chapter Context, Highlighted Text, Job Field/Role, Published Chapter Catalog] + JSON Schema
-    LLM-->>API: Structured JSON Response
+    API->>DB: Fetch published chapter catalog + top 3 liked analogies & last 5 dislike comments for (chapter_id, job_field)
+    API->>LLM: OpenAI (gpt-4.1-mini): [Passage, User Professions, Liked Exemplars, Dislike Pitfalls, Catalog] + Strict JSON Schema
+    LLM-->>API: Structured JSON {selected_job_field_code, terms, analogy_steps, analogy_limits, prerequisites}
     API->>API: Validate schema: terms (U-05), analogy steps (U-06), >=1 limit (U-07), valid prereq IDs (U-08)
-    API->>DB: INSERT study_highlights & ai_explanations (immutable snapshot)
+    API->>DB: Upsert study_highlights & INSERT ai_explanations (immutable snapshot)
     API-->>Web: Return persisted explanation + prompt for re-explanation (U-09)
+
+    Learner->>Web: Ask for more details on a step/term/limit (Grounded Elaboration)
+    Web->>API: POST /api/v1/explanations/{id}/elaborate {target_section, target_index?, user_prompt?}
+    API->>DB: Verify auth & 30/24h quota, load explanation + source passage
+    API->>LLM: OpenAI (gpt-4.1-mini): Elaborate strictly within passage & profession context
+    LLM-->>API: Structured JSON {is_on_topic, hint?, elaboration_markdown, work_example?}
+    API->>DB: INSERT ai_elaborations
+    API-->>Web: Return grounded elaboration (or redirect hint if off-topic)
+
+    Learner->>Web: Like or Dislike explanation + optional comment (<= 500 chars)
+    Web->>API: PUT /api/v1/explanations/{id}/feedback {rating: "like"|"dislike", comment?}
+    API->>DB: UPSERT ai_explanation_feedback (conditions future explanations for same profession)
+    API-->>Web: Return updated feedback state
     
     Learner->>Web: Submit re-explanation in own words (U-09)
     Web->>API: POST /api/v1/highlights/{id}/reexplanations {learner_response}
@@ -227,18 +240,30 @@ sequenceDiagram
 ```
 
 ### 6.3 Pipeline Guardrails
-1. **Input Selection Validation (`U-04`):**
+1. **Locked LLM Provider & Quota (`ADR-004`):**
+   - `apps/api` uses **OpenAI (`gpt-4.1-mini` default, configurable via `OPENAI_MODEL`)** through the official `github.com/openai/openai-go/v3` SDK (`OPENAI_API_KEY`) with strict JSON Schema Structured Outputs (`Strict: true`).
+   - Each authenticated user is limited to **30 AI generations (explanations + elaborations) per rolling 24-hour window**; exceeding this quota fails closed with `HTTP 429 Too Many Requests` (`AI_RATE_LIMIT_EXCEEDED`).
+2. **Input Selection Validation (`U-04`):**
    - Unauthenticated guests receive `401 Unauthorized` prompting login.
    - `selected_text` must be between `15` and `3,000` characters `[ASSUMPTION]` and span `1` to `3` paragraphs (`\n\n` delimiters). Selections exceeding 3 paragraphs are rejected with `422 Unprocessable Entity` (`SELECTION_TOO_LONG`) instructing the learner to narrow their highlight.
    - `selected_text` must exist verbatim within the target `chapter_versions.content_markdown` to prevent prompt-injection via fabricated passage payloads.
-2. **Closed-World Link Resolution (`U-05`, `U-08`):**
+3. **Closed-World Link Resolution (`U-05`, `U-08`):**
    - The prompt receives the authoritative list of published `(chapter_id, slug, title)` records.
    - After LLM generation, `apps/api` strips or unlinks any term chapter link (`U-05`) or prerequisite chapter ID (`U-08`) that does not resolve to an actually published chapter in PostgreSQL.
-3. **Mandatory Analogy Breakdown (`U-07`):**
+4. **Mandatory Analogy Breakdown (`U-07`):**
    - The structured output validator rejects any LLM response where `analogy_limits` is empty or missing a corresponding `accurate_explanation`. If validation fails once, `apps/api` retries once with a repair prompt, then fails closed (`503 AI_GENERATION_UNAVAILABLE`).
-4. **Work Experience Snapshot Immutability (`U-01`, `U-02`, `U-06`):**
-   - Each `ai_explanations` row stores the exact `job_field_code` and `role_title` used at generation time (or `is_everyday_fallback = true` if the user skipped `U-01`). Subsequent updates to `user_work_experiences` (`U-02`) affect only new requests.
-5. **Non-Punitive Active Recall Grading (`U-09`, `U-10`):**
+5. **Best-Fit Multi-Profession Selection, Comparison & Snapshot Immutability (`U-01`, `U-02`, `U-06`):**
+   - When `job_field_code` is omitted in `POST /api/v1/chapters/{id}/explanations`, `apps/api` passes all of the learner's saved `user_work_experiences` to the LLM, which picks the single best-matching profession from their profile for that specific passage (using `priority_order` as a tie-breaker). If the learner has no saved professions, `is_everyday_fallback = true` is used.
+   - Learners may also pass an explicit `job_field_code` on the same highlight (`1:N` `study_highlights -> ai_explanations`) to compare how another profession captures different nuances without mixing multiple workplaces inside a single step sequence. If an `ai_explanations` row already exists for `(highlight_id, job_field_code)`, it is returned idempotently without consuming LLM quota.
+   - Each `ai_explanations` row snapshots `job_field_code` and `role_title_snapshot` at generation time. Subsequent updates to `user_work_experiences` (`U-02`) affect only new requests.
+6. **Passage-Anchored Elaboration (`ai_elaborations`):**
+   - Learners can request deeper detail on a specific `step`, `term`, `limit`, or `general` concept of an existing `ai_explanations` row (`POST /api/v1/explanations/{id}/elaborate`), optionally supplying a bounded `user_prompt` (`1–300` characters).
+   - If the `user_prompt` is off-topic (unanchored to the highlighted GED passage and explanation), the evaluator returns `is_on_topic = false` with a guiding redirect `hint_text` rather than acting as an open-ended chatbot.
+7. **Profession Feedback Flywheel & Prompt-Injection Isolation (`ai_explanation_feedback`):**
+   - Learners can rate an explanation (`rating IN ('like', 'dislike')`) with an optional `comment` (`<= 500` characters) at both a `like` and a `dislike` (`PUT /api/v1/explanations/{id}/feedback`).
+   - When generating a new explanation for `(chapter_id, job_field_code)`, `apps/api` retrieves up to 3 net-liked explanations (as positive profession exemplars) and up to 5 recent dislike comments (as pitfalls to avoid) for that `(chapter_id, job_field_code)`.
+   - Feedback comments are never displayed directly to other users (preventing PII leakage) and are sanitized and wrapped in strict untrusted-data XML/JSON delimiters so user comments cannot execute indirect prompt injection.
+8. **Non-Punitive Active Recall Grading (`U-09`, `U-10`):**
    - If the learner's response is whitespace-only, gibberish, or classified by the evaluator as off-topic (`is_graded = false`), `apps/api` returns a guiding hint without generating failure critiques, and the attempt is excluded from graded retry progression.
 
 ---
@@ -259,8 +284,8 @@ sequenceDiagram
 | :--- | :--- | :---: | :--- |
 | **Account Identity** | `users`, `user_roles` | Confidential (PII) | Retained while account is active. On account deletion request, `email` and `display_name` are scrubbed/anonymized within `[ASSUMPTION: 30 days]`; `users.deleted_at` is set. |
 | **Educator Credential Files** | Object Storage + `educator_verifications` | Restricted / High Sensitivity | Raw file purged `[ASSUMPTION: 30 days]` after admin decision (or immediately upon user withdrawal). Structured badge status retained while user is an Editor. |
-| **Learner Work Profile & Study History** | `user_work_experiences`, `study_highlights`, `ai_explanations`, `reexplanation_attempts` | Private User Data | Retained for user's study history (`U-11`); deleted or cascaded upon account deletion. Individual job fields removable immediately (`U-02`). |
-| **AI Quality Reports** | `ai_quality_reports` | Internal Operational | Retained for `[ASSUMPTION: 1 year]` for prompt/content quality auditing; detached from `user_id` upon account deletion. |
+| **Learner Work Profile & Study History** | `user_work_experiences`, `study_highlights`, `ai_explanations`, `ai_elaborations`, `reexplanation_attempts` | Private User Data | Retained for user's study history (`U-11`); deleted or cascaded upon account deletion. Individual job fields removable immediately (`U-02`). |
+| **AI Explanation Feedback & Quality Reports** | `ai_explanation_feedback`, `ai_quality_reports` | Internal Operational | Retained for `[ASSUMPTION: 1 year]` for prompt/content quality auditing and profession-conditioned feedback; never displayed with PII to other users. |
 | **Private Editor Drafts** | `proposals` (`status = 'draft'`) | Private User Data | Deletable by author anytime; abandoned drafts auto-purged after `[ASSUMPTION: 180 days]` of inactivity. |
 | **Published Chapters & Editorial Provenance** | `chapters`, `chapter_versions`, `proposals` (submitted/published/rejected) | Public / Integrity Ledger | Retained indefinitely to preserve Maker–Checker auditability (`C-04`, `C-06`, `C-08`, `E-10`). Deleted users appear as `"Former Contributor (<short-hash>)"`. |
 | **Guest Metering Ledger** | `guest_sessions`, `guest_chapter_reads` | Ephemeral Pseudonymous | Purged automatically after `[ASSUMPTION: 90 days]` of inactivity or upon conversion to a registered account. |
@@ -300,8 +325,8 @@ sequenceDiagram
 - **`[ASSUMPTION-A4]` Sensitive Document Retention (`E-02`):** Raw educator credential uploads are purged 30 days after an approval/rejection decision to minimize PII breach surface, keeping only the verification status and audit record.
 - **`[ASSUMPTION-A5]` Single-Author Proposals in MVP:** While `C-06` mentions "authored or co-authored", MVP proposals have a primary `author_id` plus an optional `proposal_contributors` join table (populated when another Editor's draft/merge is incorporated) so `C-06` blocks all contributors from approving.
 
-### 9.2 Open Questions Remaining for Confirmation
-1. **Q1 — LLM Provider & Model Selection (`U-04`–`U-10`):** Which LLM provider and model tier (e.g., Gemini 2.5 Flash / Claude Haiku / OpenAI GPT-4o-mini) should `apps/api` target for the explanation and active-recall evaluation pipelines, and what is the per-user daily rate limit?
+### 9.2 Resolved & Open Questions
+1. **Q1 — LLM Provider, Model Selection & Rate Limits (`U-04`–`U-10`) [RESOLVED 2026-11-02]:** Locked in **OpenAI (`gpt-4.1-mini` default, configurable via `OPENAI_MODEL`)** using `github.com/openai/openai-go/v3` (`OPENAI_API_KEY`) with strict JSON Schema Structured Outputs (`Strict: true`), a `15s` hard timeout (`<= 1` schema-repair retry), and a per-user daily quota of **30 AI calls per rolling 24 hours** (`HTTP 429 Too Many Requests`). Also approved best-fit multi-profession selection (`1:N` `study_highlights -> ai_explanations`), passage-anchored elaboration (`ai_elaborations`), and the like/dislike profession feedback loop (`ai_explanation_feedback`).
 2. **Q2 — Educator Credential File Formats & Storage Provider (`E-02`):** Should `E-02` require file uploads (PDF/JPEG/PNG up to 5 MB) stored in Supabase Storage (private bucket) / S3, or is text-only credential metadata (license number + institution URL) sufficient for initial Phase 4 rollout?
 3. **Q3 — Email Delivery Provider (`E-07`, `C-10`):** Which transactional email service (e.g., Resend, AWS SES, Postmark, or deferred in-app-only for MVP) should back the optional email notifications in `E-07`?
 4. **Q4 — Co-Authorship Mechanics (`C-06`):** Under what exact workflow does a proposal become "co-authored" (e.g., when a second Editor takes over an abandoned `changes_requested` proposal, or explicit co-author tagging)?

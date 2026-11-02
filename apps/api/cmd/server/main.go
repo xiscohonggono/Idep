@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"api/internal/handler"
+	"api/internal/llm"
 	"api/internal/repository"
 	"api/internal/service"
 
@@ -30,7 +31,9 @@ func main() {
 	// Routes are registered before any database work so that exporting the
 	// OpenAPI contract needs neither DATABASE_URL nor a reachable database.
 	userRepo := repository.NewPostgresUserRepository(nil)
-	router, api := newAPI(service.NewUserService(userRepo))
+	analogyRepo := repository.NewPostgresAnalogyRepository(nil)
+	generator := llm.NewOpenAIGenerator(os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
+	router, api := newAPI(service.NewUserService(userRepo), service.NewAnalogyService(analogyRepo, generator))
 
 	// Export OpenAPI contract flag
 	if len(os.Args) > 1 && os.Args[1] == "--export-openapi" {
@@ -45,7 +48,9 @@ func main() {
 		return
 	}
 
-	userRepo.SetPool(openPool(context.Background()))
+	pool := openPool(context.Background())
+	userRepo.SetPool(pool)
+	analogyRepo.SetPool(pool)
 
 	port := ":8080"
 	fmt.Printf("Go API server running on http://localhost%s\n", port)
@@ -56,7 +61,7 @@ func main() {
 }
 
 // newAPI builds the router and registers every Huma operation.
-func newAPI(userService *service.UserService) (*chi.Mux, huma.API) {
+func newAPI(userService *service.UserService, analogyService *service.AnalogyService) (*chi.Mux, huma.API) {
 	router := chi.NewMux()
 	api := humachi.New(router, huma.DefaultConfig("Turbo Next Go API", "1.0.0"))
 
@@ -74,6 +79,7 @@ func newAPI(userService *service.UserService) (*chi.Mux, huma.API) {
 	})
 
 	handler.RegisterUserRoutes(api, userService)
+	handler.RegisterAnalogyRoutes(api, analogyService)
 
 	return router, api
 }

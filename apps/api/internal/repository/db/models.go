@@ -10,6 +10,49 @@ import (
 	"github.com/google/uuid"
 )
 
+type AiElaboration struct {
+	ID                  uuid.UUID `json:"id"`
+	ExplanationID       uuid.UUID `json:"explanation_id"`
+	UserID              uuid.UUID `json:"user_id"`
+	TargetSection       string    `json:"target_section"`
+	TargetIndex         *int16    `json:"target_index"`
+	UserPrompt          *string   `json:"user_prompt"`
+	IsOnTopic           bool      `json:"is_on_topic"`
+	HintText            *string   `json:"hint_text"`
+	ElaborationMarkdown *string   `json:"elaboration_markdown"`
+	WorkExample         *string   `json:"work_example"`
+	ModelIdentifier     string    `json:"model_identifier"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+type AiExplanation struct {
+	ID                 uuid.UUID `json:"id"`
+	HighlightID        uuid.UUID `json:"highlight_id"`
+	UserID             uuid.UUID `json:"user_id"`
+	JobFieldCode       *string   `json:"job_field_code"`
+	RoleTitleSnapshot  *string   `json:"role_title_snapshot"`
+	IsEverydayFallback bool      `json:"is_everyday_fallback"`
+	TermsJson          []byte    `json:"terms_json"`
+	AnalogyStepsJson   []byte    `json:"analogy_steps_json"`
+	AnalogyLimitsJson  []byte    `json:"analogy_limits_json"`
+	PrerequisitesJson  []byte    `json:"prerequisites_json"`
+	ModelIdentifier    string    `json:"model_identifier"`
+	PromptVersion      string    `json:"prompt_version"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+type AiExplanationFeedback struct {
+	ID            uuid.UUID `json:"id"`
+	ExplanationID uuid.UUID `json:"explanation_id"`
+	UserID        uuid.UUID `json:"user_id"`
+	ChapterID     uuid.UUID `json:"chapter_id"`
+	JobFieldCode  *string   `json:"job_field_code"`
+	Rating        string    `json:"rating"`
+	Comment       *string   `json:"comment"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type AuditEvent struct {
 	ID           uuid.UUID  `json:"id"`
 	ActorUserID  *uuid.UUID `json:"actor_user_id"`
@@ -20,6 +63,108 @@ type AuditEvent struct {
 	MetadataJson []byte     `json:"metadata_json"`
 	RequestID    string     `json:"request_id"`
 	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type Chapter struct {
+	ID               uuid.UUID   `json:"id"`
+	SubjectID        uuid.UUID   `json:"subject_id"`
+	Slug             string      `json:"slug"`
+	Title            string      `json:"title"`
+	DisplayOrder     int32       `json:"display_order"`
+	Status           string      `json:"status"`
+	CurrentVersionID *uuid.UUID  `json:"current_version_id"`
+	SearchTsv        interface{} `json:"search_tsv"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
+}
+
+type ChapterPrerequisite struct {
+	ChapterVersionID      uuid.UUID `json:"chapter_version_id"`
+	PrerequisiteChapterID uuid.UUID `json:"prerequisite_chapter_id"`
+	DisplayOrder          int16     `json:"display_order"`
+}
+
+type ChapterVersion struct {
+	ID                    uuid.UUID  `json:"id"`
+	ChapterID             uuid.UUID  `json:"chapter_id"`
+	VersionNumber         int32      `json:"version_number"`
+	Title                 string     `json:"title"`
+	ContentMarkdown       string     `json:"content_markdown"`
+	TocJson               []byte     `json:"toc_json"`
+	CitationsJson         []byte     `json:"citations_json"`
+	EditSummary           string     `json:"edit_summary"`
+	AuthorID              uuid.UUID  `json:"author_id"`
+	CheckerID             *uuid.UUID `json:"checker_id"`
+	SourceProposalID      *uuid.UUID `json:"source_proposal_id"`
+	RollbackFromVersionID *uuid.UUID `json:"rollback_from_version_id"`
+	RollbackReason        *string    `json:"rollback_reason"`
+	CreatedAt             time.Time  `json:"created_at"`
+}
+
+type GuestChapterRead struct {
+	GuestSessionID uuid.UUID `json:"guest_session_id"`
+	ChapterID      uuid.UUID `json:"chapter_id"`
+	FirstReadAt    time.Time `json:"first_read_at"`
+	LastReadAt     time.Time `json:"last_read_at"`
+}
+
+type GuestSession struct {
+	ID              uuid.UUID  `json:"id"`
+	FingerprintHash string     `json:"fingerprint_hash"`
+	ConvertedUserID *uuid.UUID `json:"converted_user_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastSeenAt      time.Time  `json:"last_seen_at"`
+}
+
+type JobField struct {
+	Code         string    `json:"code"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	ExampleRoles []string  `json:"example_roles"`
+	DisplayOrder int16     `json:"display_order"`
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type ReexplanationAttempt struct {
+	ID                 uuid.UUID `json:"id"`
+	HighlightID        uuid.UUID `json:"highlight_id"`
+	ExplanationID      uuid.UUID `json:"explanation_id"`
+	UserID             uuid.UUID `json:"user_id"`
+	AttemptNumber      int16     `json:"attempt_number"`
+	LearnerResponse    string    `json:"learner_response"`
+	IsGraded           bool      `json:"is_graded"`
+	HintText           *string   `json:"hint_text"`
+	WhatWasRightJson   []byte    `json:"what_was_right_json"`
+	InaccuraciesJson   []byte    `json:"inaccuracies_json"`
+	MissingDetailsJson []byte    `json:"missing_details_json"`
+	ImprovementSummary *string   `json:"improvement_summary"`
+	ModelIdentifier    string    `json:"model_identifier"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+type StudyHighlight struct {
+	ID               uuid.UUID `json:"id"`
+	UserID           uuid.UUID `json:"user_id"`
+	SubjectID        uuid.UUID `json:"subject_id"`
+	ChapterID        uuid.UUID `json:"chapter_id"`
+	ChapterVersionID uuid.UUID `json:"chapter_version_id"`
+	SelectedText     string    `json:"selected_text"`
+	ParagraphCount   int16     `json:"paragraph_count"`
+	StartOffset      int32     `json:"start_offset"`
+	EndOffset        int32     `json:"end_offset"`
+	ReexplainStatus  string    `json:"reexplain_status"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type Subject struct {
+	ID           uuid.UUID `json:"id"`
+	Slug         string    `json:"slug"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	DisplayOrder int16     `json:"display_order"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type User struct {
@@ -44,4 +189,14 @@ type UserRole struct {
 	RevokedBy            *uuid.UUID `json:"revoked_by"`
 	RevokedAt            *time.Time `json:"revoked_at"`
 	RevocationReason     *string    `json:"revocation_reason"`
+}
+
+type UserWorkExperience struct {
+	ID            uuid.UUID `json:"id"`
+	UserID        uuid.UUID `json:"user_id"`
+	JobFieldCode  string    `json:"job_field_code"`
+	RoleTitle     *string   `json:"role_title"`
+	PriorityOrder int16     `json:"priority_order"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
