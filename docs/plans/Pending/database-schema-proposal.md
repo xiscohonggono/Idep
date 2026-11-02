@@ -141,6 +141,10 @@ CREATE TABLE guest_sessions (
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Rate-limiting index for daily salted (IP prefix + User-Agent) fingerprint window (ADR-002 §4.3)
+CREATE INDEX idx_guest_sessions_fingerprint_created
+    ON guest_sessions (fingerprint_hash, created_at DESC);
+
 CREATE TABLE guest_chapter_reads (
     guest_session_id UUID NOT NULL REFERENCES guest_sessions(id) ON DELETE CASCADE,
     chapter_id UUID NOT NULL, -- FK added after chapters table creation
@@ -280,6 +284,10 @@ ALTER TABLE chapters
     ADD CONSTRAINT fk_chapters_current_version
     FOREIGN KEY (current_version_id) REFERENCES chapter_versions(id) ON DELETE RESTRICT;
 
+-- Editor Contribution History & Admin Checker Review Index (E-10, C-09 keyset pagination)
+CREATE INDEX idx_chapter_versions_author_history
+    ON chapter_versions (author_id, created_at DESC, id DESC);
+
 ALTER TABLE guest_chapter_reads
     ADD CONSTRAINT fk_guest_reads_chapter
     FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE;
@@ -363,9 +371,13 @@ ALTER TABLE chapter_versions
     ADD CONSTRAINT fk_chapter_versions_proposal
     FOREIGN KEY (source_proposal_id) REFERENCES proposals(id) ON DELETE RESTRICT;
 
--- FIFO Review Queue Index (C-01: oldest-first by subject, chapter, proposal_type)
+-- FIFO Review Queue Indexes (C-01: oldest-first unfiltered + subject/type filtered with keyset tie-breaker)
 CREATE INDEX idx_proposals_review_queue
-    ON proposals (submitted_at ASC, subject_id, proposal_type)
+    ON proposals (submitted_at ASC, id ASC)
+    WHERE status IN ('submitted', 'in_review');
+
+CREATE INDEX idx_proposals_review_queue_subject
+    ON proposals (subject_id, proposal_type, submitted_at ASC, id ASC)
     WHERE status IN ('submitted', 'in_review');
 
 -- Expired 48h Claim Sweep Index (C-02)
@@ -373,9 +385,9 @@ CREATE INDEX idx_proposals_expired_claims
     ON proposals (claim_expires_at ASC)
     WHERE status = 'in_review' AND claim_expires_at IS NOT NULL;
 
--- Editor "My Proposals" & "My Drafts" Index (E-04, E-07)
+-- Editor "My Proposals" & "My Drafts" Index (E-04, E-07 keyset pagination)
 CREATE INDEX idx_proposals_author_status
-    ON proposals (author_id, status, updated_at DESC);
+    ON proposals (author_id, status, updated_at DESC, id DESC);
 
 -- 13. Proposal Contributors / Co-Authors (C-06 co-author self-approval guard)
 CREATE TABLE proposal_contributors (
@@ -455,10 +467,10 @@ CREATE TABLE study_highlights (
 
 -- Study History grouped by Subject, newest-first (U-11) & "To re-explain" queue (U-09)
 CREATE INDEX idx_study_highlights_user_subject_history
-    ON study_highlights (user_id, subject_id, created_at DESC);
+    ON study_highlights (user_id, subject_id, created_at DESC, id DESC);
 
 CREATE INDEX idx_study_highlights_reexplain_queue
-    ON study_highlights (user_id, created_at DESC)
+    ON study_highlights (user_id, created_at DESC, id DESC)
     WHERE reexplain_status = 'queued';
 
 -- 18. Grounded AI Explanations (U-05, U-06, U-07, U-08)
@@ -632,6 +644,52 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_chapters_sync_search_tsv
     BEFORE INSERT OR UPDATE OF current_version_id, title ON chapters
     FOR EACH ROW EXECUTE FUNCTION sync_chapter_search_tsv();
+
+-- Enforce Co-Author Two-Person Integrity across proposals, proposal_contributors, and chapter_versions (C-06)
+CREATE OR REPLACE FUNCTION enforce_proposal_coauthor_separation()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_TABLE_NAME = 'proposals' THEN
+        IF (NEW.claimed_by IS NOT NULL AND EXISTS (
+            SELECT 1 FROM proposal_contributors pc
+             WHERE pc.proposal_id = NEW.id AND pc.user_id = NEW.claimed_by
+        )) OR (NEW.reviewed_by IS NOT NULL AND EXISTS (
+            SELECT 1 FROM proposal_contributors pc
+             WHERE pc.proposal_id = NEW.id AND pc.user_id = NEW.reviewed_by
+        )) THEN
+            RAISE EXCEPTION 'Two-person integrity violation (C-06): co-author cannot claim or review proposal %', NEW.id;
+        END IF;
+    ELSIF TG_TABLE_NAME = 'proposal_contributors' THEN
+        IF EXISTS (
+            SELECT 1 FROM proposals p
+             WHERE p.id = NEW.proposal_id
+               AND (p.author_id = NEW.user_id OR p.claimed_by = NEW.user_id OR p.reviewed_by = NEW.user_id)
+        ) THEN
+            RAISE EXCEPTION 'Two-person integrity violation (C-06): contributor % conflicts with proposal author/claimer/reviewer on %', NEW.user_id, NEW.proposal_id;
+        END IF;
+    ELSIF TG_TABLE_NAME = 'chapter_versions' THEN
+        IF NEW.source_proposal_id IS NOT NULL AND NEW.checker_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM proposal_contributors pc
+             WHERE pc.proposal_id = NEW.source_proposal_id AND pc.user_id = NEW.checker_id
+        ) THEN
+            RAISE EXCEPTION 'Two-person integrity violation (C-06): co-author % cannot approve chapter_version for proposal %', NEW.checker_id, NEW.source_proposal_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_proposals_coauthor_guard
+    BEFORE INSERT OR UPDATE OF claimed_by, reviewed_by ON proposals
+    FOR EACH ROW EXECUTE FUNCTION enforce_proposal_coauthor_separation();
+
+CREATE TRIGGER trg_proposal_contributors_coauthor_guard
+    BEFORE INSERT OR UPDATE ON proposal_contributors
+    FOR EACH ROW EXECUTE FUNCTION enforce_proposal_coauthor_separation();
+
+CREATE TRIGGER trg_chapter_versions_coauthor_guard
+    BEFORE INSERT ON chapter_versions
+    FOR EACH ROW EXECUTE FUNCTION enforce_proposal_coauthor_separation();
 ```
 
 ---
@@ -681,11 +739,12 @@ sql:
 | :--- | :---: | :--- | :--- | :---: |
 | **Subject & Chapter Directory** | `U-03` | `SELECT ... FROM chapters WHERE subject_id = $1 AND status = 'published' ORDER BY display_order ASC` | `idx_chapters_subject_order` | `< 15 ms` |
 | **Chapter Keyword Search** | `U-03` | `SELECT ... FROM chapters WHERE status = 'published' AND search_tsv @@ websearch_to_tsquery('english', $1)` | `idx_chapters_search_tsv` (GIN) | `< 40 ms` |
-| **Guest 3-Chapter Gate Check** | `U-13` | `SELECT chapter_id FROM guest_chapter_reads WHERE guest_session_id = $1` (max 3 rows) | PK `(guest_session_id, chapter_id)` | `< 10 ms` |
-| **Checker Review Queue (Oldest First)** | `C-01` | `SELECT ... FROM proposals WHERE status IN ('submitted','in_review') ORDER BY submitted_at ASC LIMIT 25` | `idx_proposals_review_queue` | `< 25 ms` |
+| **Guest 3-Chapter Gate & Rate Limit** | `U-13` | `SELECT chapter_id FROM guest_chapter_reads WHERE guest_session_id = $1` / `SELECT COUNT(*) FROM guest_sessions WHERE fingerprint_hash = $1 AND created_at > $2` | PK `(guest_session_id, chapter_id)` & `idx_guest_sessions_fingerprint_created` | `< 10 ms` |
+| **Checker Review Queue (Oldest First)** | `C-01` | `SELECT ... FROM proposals WHERE status IN ('submitted','in_review') [AND subject_id = $1] ORDER BY submitted_at ASC, id ASC LIMIT 25` | `idx_proposals_review_queue` & `idx_proposals_review_queue_subject` | `< 25 ms` |
 | **Expired 48h Claim Sweep** | `C-02` | `UPDATE proposals SET status='submitted', claimed_by=NULL ... WHERE status='in_review' AND claim_expires_at < NOW()` | `idx_proposals_expired_claims` | `< 20 ms` |
-| **Editor Proposal Dashboard** | `E-07`, `E-04` | `SELECT ... FROM proposals WHERE author_id = $1 AND status = $2 ORDER BY updated_at DESC` | `idx_proposals_author_status` | `< 20 ms` |
-| **Learner Study History by Subject** | `U-11` | `SELECT ... FROM study_highlights WHERE user_id = $1 AND subject_id = $2 ORDER BY created_at DESC LIMIT 20` | `idx_study_highlights_user_subject_history` | `< 25 ms` |
+| **Editor Proposal Dashboard** | `E-07`, `E-04` | `SELECT ... FROM proposals WHERE author_id = $1 AND status = $2 ORDER BY updated_at DESC, id DESC LIMIT 20` | `idx_proposals_author_status` | `< 20 ms` |
+| **Editor Contribution History** | `E-10`, `C-09` | `SELECT ... FROM chapter_versions WHERE author_id = $1 ORDER BY created_at DESC, id DESC LIMIT 20` | `idx_chapter_versions_author_history` | `< 20 ms` |
+| **Learner Study History by Subject** | `U-11` | `SELECT ... FROM study_highlights WHERE user_id = $1 AND subject_id = $2 ORDER BY created_at DESC, id DESC LIMIT 20` | `idx_study_highlights_user_subject_history` | `< 25 ms` |
 | **Active Role Resolution** | All Auth | `SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL` | `idx_user_roles_active_unique` | `< 5 ms` |
 
 ### Operational Sizing & Connection Pool Constraints
@@ -707,4 +766,5 @@ sql:
 3. **D3 — Immutable Citations Snapshot (`E-05`, `C-08`):** Approved `citations_json JSONB` on `chapter_versions` and `proposal_revisions` so published, seeded, and rolled-back versions carry immutable citation snapshots alongside `proposal_citations` for active drafts/reviews.
 4. **D4 — Proposal State-Machine Constraints & Prerequisite Links (`C-02`, `C-04`, `U-08`):** Approved `chk_in_review_claim` and `chk_published_provenance` on `proposals`, plus `proposed_prerequisite_chapter_ids UUID[]` on `proposals` and `prerequisite_chapter_ids UUID[]` on `proposal_revisions`.
 5. **D5 — `sqlc` Native Go Pointer & UUID/Time Overrides:** Approved `emit_pointers_for_null_types: true` and `uuid`/`timestamptz` overrides in `apps/api/sqlc.yaml` (§3.6).
+6. **D6 — Keyset Pagination Indexes, Guest Fingerprint Index & Co-Author Guard (`C-01`, `C-06`, `E-10`, `U-13`):** Added `idx_chapter_versions_author_history` (`E-10`, `C-09`), `idx_guest_sessions_fingerprint_created` (`U-13`), composite keyset tie-breakers on `idx_proposals_review_queue` / `idx_proposals_review_queue_subject` (`C-01`), and `enforce_proposal_coauthor_separation()` triggers enforcing `C-06` across `proposal_contributors`.
 

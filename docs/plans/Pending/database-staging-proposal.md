@@ -83,15 +83,17 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
 
 ### 3.3 Stage 2: Maker–Checker Editorial Core (`004`–`005`)
 - **Forward Steps:**
-  1. Create `proposals` (with `chk_in_review_claim` and `chk_published_provenance`), `proposal_contributors`, and `proposal_revisions` (with immutability trigger `trg_proposal_revisions_immutable`).
-  2. Add `fk_chapter_versions_proposal` on `chapter_versions(source_proposal_id)` using `NOT VALID` followed by `VALIDATE CONSTRAINT` so existing Stage 1 `chapter_versions` rows are not locked for full-table scans during `ALTER TABLE`.
-  3. Create `checker_applications` and `notifications`.
+  1. Create `proposals` (with `chk_in_review_claim`, `chk_published_provenance`, `idx_proposals_review_queue`, and `idx_proposals_review_queue_subject`), `proposal_contributors`, and `proposal_revisions` (with immutability trigger `trg_proposal_revisions_immutable`).
+  2. Create `enforce_proposal_coauthor_separation()` and attach triggers `trg_proposals_coauthor_guard`, `trg_proposal_contributors_coauthor_guard`, and `trg_chapter_versions_coauthor_guard` (`C-06`).
+  3. Add `fk_chapter_versions_proposal` on `chapter_versions(source_proposal_id)` using `NOT VALID` followed by `VALIDATE CONSTRAINT` so existing Stage 1 `chapter_versions` rows are not locked for full-table scans during `ALTER TABLE`.
+  4. Create `checker_applications` and `notifications`.
 - **Verification Gate:**
   - Confirm `INSERT INTO proposals` with `claimed_by = author_id` fails with `chk_no_self_claim` (`C-06`).
+  - Confirm a co-author in `proposal_contributors` attempting to claim (`claimed_by`), review (`reviewed_by`), or publish (`chapter_versions.checker_id`) that proposal fails with `enforce_proposal_coauthor_separation` (`C-06`).
   - Confirm `UPDATE proposals SET status = 'in_review', claimed_by = NULL` fails with `chk_in_review_claim` (`C-02`).
   - Confirm `UPDATE proposals SET status = 'rejected', review_decision_reason = ''` fails with `chk_decision_reason` (`C-05`).
 - **Rollback Strategy:**
-  - Drop `fk_chapter_versions_proposal`, then drop `notifications`, `checker_applications`, `proposal_revisions`, `proposal_contributors`, `proposals`. Stage 1 reader and guest metering continue operating without interruption.
+  - Drop `trg_chapter_versions_coauthor_guard`, `trg_proposal_contributors_coauthor_guard`, `trg_proposals_coauthor_guard`, `enforce_proposal_coauthor_separation()`, and `fk_chapter_versions_proposal`, then drop `notifications`, `checker_applications`, `proposal_revisions`, `proposal_contributors`, `proposals`. Stage 1 reader and guest metering continue operating without interruption.
 
 ### 3.4 Stage 3: AI Study Sidebar & Active Recall (`006`)
 - **Forward Steps:**
@@ -144,13 +146,39 @@ Every schema PR and migration stage must record the following verification evide
 
 ---
 
-## 6. Migration Assumptions & Open Questions
+## 6. Migration File Format, Assumptions & Operational Questions
 
-### 6.1 Marked Assumptions
-- **`[ASSUMPTION-M1]` Greenfield Database State at Stage 0:** Because the repository currently contains only the starter `001_users.sql` mock stub and zero production users, Stage 0 can directly replace `001_users.sql` rather than maintaining dual `TEXT` and `UUID` user IDs.
-- **`[ASSUMPTION-M2]` Migration Runner Selection:** `sqlc` compiles schema files from `apps/api/sql/schema/*.sql`, and runtime migrations will use standard sequential SQL files compatible with `golang-migrate` or `goose` (`[ASSUMPTION]`).
+### 6.1 Standardized Migration File Format (`goose` + `sqlc` Single Source of Truth)
+- **Single-File Up/Down Convention:** Every file in `apps/api/sql/schema/00N_<name>.sql` uses standard `goose` annotations (`-- +goose Up` and `-- +goose Down`, wrapping multi-statement PL/pgSQL functions in `-- +goose StatementBegin` / `-- +goose StatementEnd`).
+- **Why `goose` Annotations:** `sqlc generate` natively understands `-- +goose Up` and automatically ignores everything below `-- +goose Down`. This keeps forward DDL, rollback DDL, and `sqlc` code generation in a single authoritative file per migration without duplicating schema definitions.
 
-### 6.2 Open Questions Remaining
-1. **Q1 — Runtime Migration Tooling:** Should `apps/api` execute migrations via a dedicated CLI command (`go run ./cmd/migrate up`) using `goose` / `golang-migrate`, or via Supabase CLI migrations in CI/CD?
-2. **Q2 — Automated Backup & PITR Verification:** What is the target Recovery Point Objective (RPO) and Point-in-Time Recovery (PITR) retention window on the production PostgreSQL instance before Stage 2 (community editing) goes live?
+```sql
+-- +goose Up
+SET lock_timeout = '3s';
+SET statement_timeout = '30s';
+
+-- Forward DDL ...
+
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION prevent_immutable_table_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Table % is append-only; UPDATE and DELETE are prohibited', TG_TABLE_NAME;
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+-- +goose Down
+SET lock_timeout = '3s';
+SET statement_timeout = '30s';
+
+-- Reverse DDL ...
+```
+
+### 6.2 Marked Assumptions
+- **`[ASSUMPTION-M1]` Greenfield Database State at Stage 0:** Because the repository currently contains only the starter `001_users.sql` stub and zero production users, Stage 0 directly replaces `001_users.sql` with `001_identity_and_rbac.sql` rather than maintaining dual `TEXT` and `UUID` user IDs.
+- **`[ASSUMPTION-M2]` Migration Runner Execution:** Runtime migrations execute against `apps/api/sql/schema/*.sql` using `pressly/goose/v3` (via a lightweight `go run ./cmd/migrate` entrypoint or CLI), sharing the exact directory compiled by `sqlc`.
+
+### 6.3 Remaining Production Infrastructure Question (Pre-Stage 2)
+1. **Q1 — Automated Backup & PITR Verification:** What is the target Recovery Point Objective (RPO) and Point-in-Time Recovery (PITR) retention window on the production PostgreSQL instance before Stage 2 (community editing) goes live?
 
