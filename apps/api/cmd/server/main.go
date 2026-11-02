@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"api/internal/handler"
 	"api/internal/repository"
@@ -91,6 +92,12 @@ func openPool(ctx context.Context) *pgxpool.Pool {
 		// The parse error can quote the URL, so it is not logged.
 		log.Fatalf("Invalid DATABASE_URL")
 	}
+	poolConfig.MaxConns = 25
+	poolConfig.MinConns = 2
+	poolConfig.MaxConnLifetime = 30 * time.Minute
+	poolConfig.MaxConnIdleTime = 5 * time.Minute
+	poolConfig.HealthCheckPeriod = time.Minute
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatalf("Failed to create database pool: %v", err)

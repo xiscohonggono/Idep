@@ -5,12 +5,43 @@
 package db
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
+
+	"github.com/google/uuid"
 )
 
+type AuditEvent struct {
+	ID           uuid.UUID  `json:"id"`
+	ActorUserID  *uuid.UUID `json:"actor_user_id"`
+	EventType    string     `json:"event_type"`
+	TargetType   string     `json:"target_type"`
+	TargetID     uuid.UUID  `json:"target_id"`
+	Reason       *string    `json:"reason"`
+	MetadataJson []byte     `json:"metadata_json"`
+	RequestID    string     `json:"request_id"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
 type User struct {
-	ID        string
-	Name      string
-	Email     string
-	CreatedAt pgtype.Timestamptz
+	ID                        uuid.UUID  `json:"id"`
+	Email                     string     `json:"email"`
+	DisplayName               string     `json:"display_name"`
+	OnboardingCompletedAt     *time.Time `json:"onboarding_completed_at"`
+	EmailNotificationsEnabled bool       `json:"email_notifications_enabled"`
+	IsVerifiedEducator        bool       `json:"is_verified_educator"`
+	DeletedAt                 *time.Time `json:"deleted_at"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+}
+
+type UserRole struct {
+	ID                   uuid.UUID  `json:"id"`
+	UserID               uuid.UUID  `json:"user_id"`
+	Role                 string     `json:"role"`
+	GuidelinesAcceptedAt *time.Time `json:"guidelines_accepted_at"`
+	GrantedBy            *uuid.UUID `json:"granted_by"`
+	GrantedAt            time.Time  `json:"granted_at"`
+	RevokedBy            *uuid.UUID `json:"revoked_by"`
+	RevokedAt            *time.Time `json:"revoked_at"`
+	RevocationReason     *string    `json:"revocation_reason"`
 }

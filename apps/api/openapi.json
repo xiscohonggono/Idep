@@ -125,20 +125,60 @@
             "readOnly": true,
             "type": "string"
           },
-          "email": {
+          "created_at": {
+            "format": "date-time",
             "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "email_notifications_enabled": {
+            "type": "boolean"
           },
           "id": {
+            "format": "uuid",
             "type": "string"
           },
-          "name": {
+          "is_verified_educator": {
+            "type": "boolean"
+          },
+          "onboarding_completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "enum": [
+                "user",
+                "editor",
+                "checker",
+                "admin"
+              ],
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
             "type": "string"
           }
         },
         "required": [
           "id",
           "email",
-          "name"
+          "display_name",
+          "email_notifications_enabled",
+          "is_verified_educator",
+          "roles",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       }
@@ -155,12 +195,13 @@
         "operationId": "get-user",
         "parameters": [
           {
+            "description": "User UUID",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
-              "maxLength": 128,
-              "minLength": 1,
+              "description": "User UUID",
+              "format": "uuid",
               "type": "string"
             }
           }

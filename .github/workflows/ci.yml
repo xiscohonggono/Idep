@@ -10,8 +10,25 @@ permissions:
 
 jobs:
   test-api:
-    name: Go API (Compile & Test)
+    name: Go API (Migrate, Test & Build)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: idep_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Ephemeral CI-only service credentials; not a secret.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/idep_test?sslmode=disable
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -22,12 +39,20 @@ jobs:
           go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
 
-      - name: Run Go Vet & Test
+      - name: Verify Migrations (up -> down -> up)
+        working-directory: apps/api
+        run: |
+          go run ./cmd/migrate up
+          go run ./cmd/migrate down
+          go run ./cmd/migrate up
+
+      - name: Run Go Vet, Test & Build
         working-directory: apps/api
         run: |
           go vet ./...
           go test -v ./...
           go build -o bin/server ./cmd/server
+          go build -o bin/migrate ./cmd/migrate
 
   test-web:
     name: Web Frontend (Vitest & Lint)

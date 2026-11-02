@@ -108,9 +108,20 @@ export interface components {
              * @example https://example.com/schemas/User.json
              */
             readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            display_name: string;
+            /** Format: email */
             email: string;
+            email_notifications_enabled: boolean;
+            /** Format: uuid */
             id: string;
-            name: string;
+            is_verified_educator: boolean;
+            /** Format: date-time */
+            onboarding_completed_at?: string;
+            roles: ("user" | "editor" | "checker" | "admin")[] | null;
+            /** Format: date-time */
+            updated_at: string;
         };
     };
     responses: never;
@@ -126,6 +137,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description User UUID */
                 id: string;
             };
             cookie?: never;

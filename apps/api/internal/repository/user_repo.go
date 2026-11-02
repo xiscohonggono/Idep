@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,7 +36,7 @@ func (r *PostgresUserRepository) SetPool(pool *pgxpool.Pool) {
 	}
 }
 
-func (r *PostgresUserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
+func (r *PostgresUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	if r.queries == nil {
 		return nil, domain.ErrDatabaseUnavailable
 	}
@@ -51,9 +52,20 @@ func (r *PostgresUserRepository) GetByID(ctx context.Context, id string) (*domai
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 
+	roles := make([]domain.Role, 0, len(userRow.Roles))
+	for _, role := range userRow.Roles {
+		roles = append(roles, domain.Role(role))
+	}
+
 	return &domain.User{
-		ID:    userRow.ID,
-		Name:  userRow.Name,
-		Email: userRow.Email,
+		ID:                        userRow.ID,
+		Email:                     userRow.Email,
+		DisplayName:               userRow.DisplayName,
+		OnboardingCompletedAt:     userRow.OnboardingCompletedAt,
+		EmailNotificationsEnabled: userRow.EmailNotificationsEnabled,
+		IsVerifiedEducator:        userRow.IsVerifiedEducator,
+		Roles:                     roles,
+		CreatedAt:                 userRow.CreatedAt,
+		UpdatedAt:                 userRow.UpdatedAt,
 	}, nil
 }

@@ -7,46 +7,188 @@ package db
 
 import (
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, name, email)
+INSERT INTO users (id, email, display_name)
 VALUES ($1, $2, $3)
-RETURNING id, name, email, created_at
+RETURNING id, email, display_name, onboarding_completed_at, email_notifications_enabled, is_verified_educator, deleted_at, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	ID    string
-	Name  string
-	Email string
+	ID          uuid.UUID `json:"id"`
+	Email       string    `json:"email"`
+	DisplayName string    `json:"display_name"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.ID, arg.Name, arg.Email)
+	row := q.db.QueryRow(ctx, createUser, arg.ID, arg.Email, arg.DisplayName)
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
 		&i.Email,
+		&i.DisplayName,
+		&i.OnboardingCompletedAt,
+		&i.EmailNotificationsEnabled,
+		&i.IsVerifiedEducator,
+		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, created_at
-FROM users
-WHERE id = $1 LIMIT 1
+SELECT u.id, u.email, u.display_name, u.onboarding_completed_at,
+       u.email_notifications_enabled, u.is_verified_educator,
+       u.created_at, u.updated_at,
+       COALESCE(array_agg(r.role ORDER BY r.granted_at) FILTER (WHERE r.role IS NOT NULL), '{}')::text[] AS roles
+FROM users u
+LEFT JOIN user_roles r ON r.user_id = u.id AND r.revoked_at IS NULL
+WHERE u.id = $1 AND u.deleted_at IS NULL
+GROUP BY u.id
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
+type GetUserByIDRow struct {
+	ID                        uuid.UUID  `json:"id"`
+	Email                     string     `json:"email"`
+	DisplayName               string     `json:"display_name"`
+	OnboardingCompletedAt     *time.Time `json:"onboarding_completed_at"`
+	EmailNotificationsEnabled bool       `json:"email_notifications_enabled"`
+	IsVerifiedEducator        bool       `json:"is_verified_educator"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+	Roles                     []string   `json:"roles"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
 		&i.Email,
+		&i.DisplayName,
+		&i.OnboardingCompletedAt,
+		&i.EmailNotificationsEnabled,
+		&i.IsVerifiedEducator,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Roles,
+	)
+	return i, err
+}
+
+const grantUserRole = `-- name: GrantUserRole :one
+INSERT INTO user_roles (user_id, role, guidelines_accepted_at, granted_by)
+VALUES ($1, $2, $3, $4)
+RETURNING id, user_id, role, guidelines_accepted_at, granted_by, granted_at, revoked_by, revoked_at, revocation_reason
+`
+
+type GrantUserRoleParams struct {
+	UserID               uuid.UUID  `json:"user_id"`
+	Role                 string     `json:"role"`
+	GuidelinesAcceptedAt *time.Time `json:"guidelines_accepted_at"`
+	GrantedBy            *uuid.UUID `json:"granted_by"`
+}
+
+func (q *Queries) GrantUserRole(ctx context.Context, arg GrantUserRoleParams) (UserRole, error) {
+	row := q.db.QueryRow(ctx, grantUserRole,
+		arg.UserID,
+		arg.Role,
+		arg.GuidelinesAcceptedAt,
+		arg.GrantedBy,
+	)
+	var i UserRole
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.GuidelinesAcceptedAt,
+		&i.GrantedBy,
+		&i.GrantedAt,
+		&i.RevokedBy,
+		&i.RevokedAt,
+		&i.RevocationReason,
+	)
+	return i, err
+}
+
+const insertAuditEvent = `-- name: InsertAuditEvent :one
+INSERT INTO audit_events (actor_user_id, event_type, target_type, target_id, reason, metadata_json, request_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, actor_user_id, event_type, target_type, target_id, reason, metadata_json, request_id, created_at
+`
+
+type InsertAuditEventParams struct {
+	ActorUserID  *uuid.UUID `json:"actor_user_id"`
+	EventType    string     `json:"event_type"`
+	TargetType   string     `json:"target_type"`
+	TargetID     uuid.UUID  `json:"target_id"`
+	Reason       *string    `json:"reason"`
+	MetadataJson []byte     `json:"metadata_json"`
+	RequestID    string     `json:"request_id"`
+}
+
+func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error) {
+	row := q.db.QueryRow(ctx, insertAuditEvent,
+		arg.ActorUserID,
+		arg.EventType,
+		arg.TargetType,
+		arg.TargetID,
+		arg.Reason,
+		arg.MetadataJson,
+		arg.RequestID,
+	)
+	var i AuditEvent
+	err := row.Scan(
+		&i.ID,
+		&i.ActorUserID,
+		&i.EventType,
+		&i.TargetType,
+		&i.TargetID,
+		&i.Reason,
+		&i.MetadataJson,
+		&i.RequestID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const revokeUserRole = `-- name: RevokeUserRole :one
+UPDATE user_roles
+SET revoked_by = $3, revoked_at = NOW(), revocation_reason = $4
+WHERE user_id = $1 AND role = $2 AND revoked_at IS NULL
+RETURNING id, user_id, role, guidelines_accepted_at, granted_by, granted_at, revoked_by, revoked_at, revocation_reason
+`
+
+type RevokeUserRoleParams struct {
+	UserID           uuid.UUID  `json:"user_id"`
+	Role             string     `json:"role"`
+	RevokedBy        *uuid.UUID `json:"revoked_by"`
+	RevocationReason *string    `json:"revocation_reason"`
+}
+
+func (q *Queries) RevokeUserRole(ctx context.Context, arg RevokeUserRoleParams) (UserRole, error) {
+	row := q.db.QueryRow(ctx, revokeUserRole,
+		arg.UserID,
+		arg.Role,
+		arg.RevokedBy,
+		arg.RevocationReason,
+	)
+	var i UserRole
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.GuidelinesAcceptedAt,
+		&i.GrantedBy,
+		&i.GrantedAt,
+		&i.RevokedBy,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }

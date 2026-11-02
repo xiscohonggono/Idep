@@ -66,6 +66,7 @@ Turborepo + pnpm monorepo featuring a Next.js (App Router) web app and an indepe
   2. Exports the OpenAPI 3.1 spec from Go Huma types (`apps/api/openapi.json`).
   3. Generates TypeScript types for the web app (`apps/web/lib/api/schema.d.ts`) via `openapi-typescript`.
   *Always run `pnpm codegen` after modifying database schema queries or Go API handler contracts.*
+- `go run ./cmd/migrate up|down` (from `apps/api`): Applies or rolls back one goose migration in `apps/api/sql/schema/` against `DATABASE_URL`. `down` falls under the Destructive Action Gate.
 
 ### Engineering Rules & Guardrails
 1. **End-to-End Type Safety:** Do not manually author API response types in `apps/web`. Register new routes with Huma structs in `apps/api`, run `pnpm codegen`, and import types from `@/lib/api/schema`.

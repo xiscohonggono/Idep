@@ -1,6 +1,6 @@
 # Database Schema & Persistence Contract
 
-> **Status:** Approved Contract — Ready for staged implementation (not yet migrated in `apps/api/sql/`)  
+> **Status:** Stage 0 implemented (`001_identity_and_rbac.sql` & `sqlc.yaml` overrides); Stages 1–4 pending  
 > **Engine:** PostgreSQL 16+ · **Driver:** `jackc/pgx/v5` · **Compiler:** `sqlc` (`apps/api/sqlc.yaml`)  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 

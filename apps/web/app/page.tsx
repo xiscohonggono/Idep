@@ -3,7 +3,7 @@ import { getUser } from '@/lib/api';
 export default async function HomePage() {
   let result: string;
   try {
-    result = JSON.stringify(await getUser('101'), null, 2);
+    result = JSON.stringify(await getUser('00000000-0000-0000-0000-000000000101'), null, 2);
   } catch (err) {
     result = err instanceof Error ? err.message : String(err);
   }

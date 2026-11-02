@@ -213,9 +213,10 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 ├── apps/
 │   ├── api/                                # Go 1.26 HTTP backend (Chi + Huma OpenAPI 3.1 + sqlc + pgx/v5)
 │   │   ├── cmd/server/                     # Service entrypoint & --export-openapi exporter
+│   │   ├── cmd/migrate/                    # goose migration CLI (up / down one step)
 │   │   ├── internal/                       # Domain packages, services, Huma handlers, middleware, and sqlc db
 │   │   ├── sql/
-│   │   │   ├── schema/                     # PostgreSQL DDL consumed by sqlc (bootstrap: 001_users.sql)
+│   │   │   ├── schema/                     # goose migrations, also consumed by sqlc (001_identity_and_rbac.sql)
 │   │   │   └── queries/                    # Compiled sqlc query files (*.sql)
 │   │   ├── sqlc.yaml                       # sqlc compiler configuration
 │   │   └── openapi.json                    # Generated OpenAPI 3.1 contract
@@ -253,6 +254,7 @@ Idep is built in a Turborepo + `pnpm` monorepo coupling a Next.js (App Router) w
 | :--- | :--- |
 | `pnpm dev` | Runs the Next.js frontend (`apps/web`) and Go API (`apps/api`) concurrently via Turborepo. |
 | `pnpm codegen` | Compiles SQL queries via `sqlc`, exports `apps/api/openapi.json` from Go Huma structs, and generates `apps/web/lib/api/schema.d.ts`. **Run after any SQL or API contract change.** |
+| `go run ./cmd/migrate up` / `down` (in `apps/api`) | Applies pending migrations / rolls back the latest one against `DATABASE_URL`. `down` is destructive; require explicit confirmation outside local/test databases. |
 | `pnpm build` | Builds the Next.js production bundle and compiles the Go binary. |
 | `pnpm lint` | Runs repository-wide linting across frontend and backend workspaces. |
 | `pnpm test` | Runs Vitest suites across frontend workspaces and Go unit/integration tests in `apps/api`. |

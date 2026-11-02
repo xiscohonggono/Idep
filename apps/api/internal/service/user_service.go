@@ -3,7 +3,8 @@ package service
 import (
 	"api/internal/domain"
 	"context"
-	"errors"
+
+	"github.com/google/uuid"
 )
 
 type UserService struct {
@@ -14,9 +15,9 @@ func NewUserService(repo domain.UserRepository) *UserService {
 	return &UserService{repo: repo}
 }
 
-func (s *UserService) GetUserProfile(ctx context.Context, id string) (*domain.User, error) {
-	if id == "" {
-		return nil, errors.New("user ID cannot be empty")
+func (s *UserService) GetUserProfile(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	if id == uuid.Nil {
+		return nil, domain.ErrInvalidInput
 	}
 	return s.repo.GetByID(ctx, id)
 }

@@ -1,6 +1,6 @@
 # Database Staging & Safe Migration Rollout Plan
 
-> **Status:** Approved Contract — Ready for staged implementation (not yet migrated in `apps/api/sql/`)  
+> **Status:** Stage 0 implemented (`001_identity_and_rbac.sql`, `sqlc.yaml`, `cmd/migrate`); Stages 1–4 pending  
 > **Lifecycle Pattern:** Expand → Migrate → Verify → Contract  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
@@ -62,7 +62,7 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
 ### 3.1 Stage 0: Identity & RBAC Foundation (`001_identity_and_rbac.sql`)
 - **Current State:** `apps/api/sql/schema/001_users.sql` defines a 4-column template table (`id TEXT PRIMARY KEY, name TEXT, email TEXT, created_at TIMESTAMPTZ`).
 - **Pre-Condition Check:** Verify whether any non-test environment has rows in `users`.
-  - *If empty (pre-production greenfield):* Replace `001_users.sql` directly with `001_identity_and_rbac.sql` (`users` with `UUID` PK, `user_roles`, `audit_events` + `trg_audit_events_immutable`), apply the `uuid`/`timestamptz`/pointer overrides in `apps/api/sqlc.yaml` ([`database-schema-proposal.md` §3.6](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md#L622-L654)), update `apps/api/sql/queries/users.sql` and user domain/repository/handler types, and run `pnpm codegen`.
+  - *If empty (pre-production greenfield):* Replace `001_users.sql` directly with `001_identity_and_rbac.sql` (`users` with `UUID` PK, `user_roles`, `audit_events` + `trg_audit_events_immutable`), apply the `uuid`/`timestamptz`/pointer overrides in `apps/api/sqlc.yaml` ([`database-schema-proposal.md` §3.6](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md#L697-L732)), update `apps/api/sql/queries/users.sql` and user domain/repository/handler types, and run `pnpm codegen`.
   - *If populated:* Execute Expand-Migrate-Contract: add `uuid_id UUID DEFAULT gen_random_uuid()`, backfill references, swap PK during maintenance window.
 - **Rollback Strategy:** Restore `001_users.sql` and `apps/api/sqlc.yaml` from git history and re-run `pnpm codegen` if Stage 0 fails verification before Stage 1 begins.
 
