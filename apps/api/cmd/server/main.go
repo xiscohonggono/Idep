@@ -7,10 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"api/internal/handler"
-	"api/internal/llm"
 	"api/internal/repository"
 	"api/internal/service"
 
@@ -31,9 +29,7 @@ func main() {
 	// Routes are registered before any database work so that exporting the
 	// OpenAPI contract needs neither DATABASE_URL nor a reachable database.
 	userRepo := repository.NewPostgresUserRepository(nil)
-	analogyRepo := repository.NewPostgresAnalogyRepository(nil)
-	generator := llm.NewOpenAIGenerator(os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
-	router, api := newAPI(service.NewUserService(userRepo), service.NewAnalogyService(analogyRepo, generator))
+	router, api := newAPI(service.NewUserService(userRepo))
 
 	// Export OpenAPI contract flag
 	if len(os.Args) > 1 && os.Args[1] == "--export-openapi" {
@@ -48,9 +44,7 @@ func main() {
 		return
 	}
 
-	pool := openPool(context.Background())
-	userRepo.SetPool(pool)
-	analogyRepo.SetPool(pool)
+	userRepo.SetPool(openPool(context.Background()))
 
 	port := ":8080"
 	fmt.Printf("Go API server running on http://localhost%s\n", port)
@@ -61,7 +55,7 @@ func main() {
 }
 
 // newAPI builds the router and registers every Huma operation.
-func newAPI(userService *service.UserService, analogyService *service.AnalogyService) (*chi.Mux, huma.API) {
+func newAPI(userService *service.UserService) (*chi.Mux, huma.API) {
 	router := chi.NewMux()
 	api := humachi.New(router, huma.DefaultConfig("Turbo Next Go API", "1.0.0"))
 
@@ -79,7 +73,6 @@ func newAPI(userService *service.UserService, analogyService *service.AnalogySer
 	})
 
 	handler.RegisterUserRoutes(api, userService)
-	handler.RegisterAnalogyRoutes(api, analogyService)
 
 	return router, api
 }
@@ -98,12 +91,6 @@ func openPool(ctx context.Context) *pgxpool.Pool {
 		// The parse error can quote the URL, so it is not logged.
 		log.Fatalf("Invalid DATABASE_URL")
 	}
-	poolConfig.MaxConns = 25
-	poolConfig.MinConns = 2
-	poolConfig.MaxConnLifetime = 30 * time.Minute
-	poolConfig.MaxConnIdleTime = 5 * time.Minute
-	poolConfig.HealthCheckPeriod = time.Minute
-
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatalf("Failed to create database pool: %v", err)
