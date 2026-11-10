@@ -1,6 +1,7 @@
 # Stage 3 Slice — Grounded AI Profession Analogies, Elaborations & Feedback Flywheel
 
-> **Status:** Pending Re-Delegation (Previously Implemented in af67b16; Rolled Back to Planning in 7e8b140 on 2026-11-08; Blocked on Stage 0 & Stage 1 Schemas)  
+> **Status:** Superseded by [`phase-3-ai-study-sidebar-and-active-recall.md`](../Pending/phase-3-ai-study-sidebar-and-active-recall.md) (Consolidated Option B Specification)  
+> **Note:** Retained in `docs/plans/Archived/` for historical review and audit purposes. Refer to [`phase-3-ai-study-sidebar-and-active-recall.md`](../Pending/phase-3-ai-study-sidebar-and-active-recall.md) for the active, comprehensive Phase 3 specification covering both `U-04`–`U-08` and `U-09`–`U-10`.  
 > **Review & Verification Archive:** [`docs/reviews/grounded-ai-analogies-review.md`](../../reviews/grounded-ai-analogies-review.md) · [`docs/verification/grounded-ai-analogies.md`](../../verification/grounded-ai-analogies.md)  
 > **Scope:** Stage 1 prerequisite schema (`002_work_experience.sql`, `003_curriculum_and_guests.sql`) + Stage 3 AI schema (`006_study_highlights_and_ai.sql`), `sqlc` queries, OpenAI (`gpt-4.1-mini`) structured-output generator, Huma OpenAPI 3.1 endpoints (`U-04`–`U-08` + passage-anchored elaborations + like/dislike profession feedback flywheel), and Next.js AI Study Sidebar UI.  
 > **Builder:** Claude Code via `delegate-to-claude` · **Reviewer:** Gemini/Architect → `docs/reviews/grounded-ai-analogies-review.md`  

@@ -13,6 +13,7 @@
 | Rev | Date | Author | Description |
 | :--- | :--- | :--- | :--- |
 | 1 | 2026-11-09 | Antigravity (Architect) | Initial specification: Decouples Stage 1 migrations from downstream AI slices, specifies Reader & Guest Metering architecture, defines Huma OpenAPI contracts, guarantees strict compatibility with `rag-implementation.md` and `grounded-ai-analogies.md`. |
+| 2 | 2026-11-09 | Antigravity (Architect) | **Roadmap Reconciliation & Execution Hardening:**<br>1. Added JWT authentication & role-resolution middleware (`internal/middleware/auth.go`).<br>2. Added deterministic editorial author seed (`00000000-0000-0000-0000-000000000001`) to prevent FK errors when inserting baseline chapter seeds.<br>3. Disambiguated chapter route hierarchy (`/api/v1/subjects/{subject_slug}/chapters/{chapter_slug}`).<br>4. Added explicit Files Touched and Blast-Radius Guard table. |
 
 ---
 
@@ -78,7 +79,9 @@ Before execution, this specification has been audited against all pending archit
 | **D2 (Idempotent Metering)** | Reading an already opened chapter by the same guest session does **not** consume additional quota. Enforced by composite primary key `PRIMARY KEY (guest_session_id, chapter_id)`. | Explicitly mandated by `U-13`: learners reviewing previously opened notes must not be penalized. |
 | **D3 (Search Architecture)** | Implement curriculum search via PostgreSQL English `tsvector` with generated column and GIN index on `chapters(search_tsv)`, synchronized via trigger `trg_chapters_sync_search_tsv`. | Eliminates external search engine dependencies (Elasticsearch/Algolia), delivers <50ms query latency across the curriculum, and maintains transactional consistency on version publication (`ADR-001`, `U-03`). |
 | **D4 (Content Formatting)** | Store chapter bodies as standard CommonMark Markdown in `chapter_versions.content_markdown`. Precompute hierarchical headings as `toc_json` during publication. | Ensures clean separation between storage and presentation tier. Next.js renders Markdown via safe AST parser while TOC is instantly available without client-side DOM parsing. |
-| **D5 (Seed Data)** | Seed the 10 starter job fields (`job_fields`) and 4 official GED subjects (`subjects`) directly in the migration files via `INSERT ... ON CONFLICT DO NOTHING`. Include baseline curriculum chapters for each subject. | Gives developers, CI environments, and end-users an immediately functional platform without manual seed scripts. |
+| **D5 (Seed Data & System Author)** | Seed the 10 starter job fields (`job_fields`) and 4 official GED subjects (`subjects`) directly in the migration files via `INSERT ... ON CONFLICT DO NOTHING`. To satisfy foreign key `chapter_versions.author_id NOT NULL REFERENCES users(id)` on a fresh database, seed a deterministic system author (`00000000-0000-0000-0000-000000000001`, `curriculum-seed@idep.local`) before inserting baseline curriculum chapters. | Guarantees migrations and seeds apply completely clean in CI without requiring pre-existing user accounts or external seed scripts. |
+| **D6 (Hierarchical Chapter Scoping)** | Resolve chapters by subject and slug: `/api/v1/subjects/{subject_slug}/chapters/{chapter_slug}` (with fallback `/api/v1/chapters/{id}`). | Aligns route lookup directly with the composite database index `UNIQUE (subject_id, slug)` on `chapters`. |
+| **D7 (Stateless JWT & First-Party Role Lookup)** | Middleware validates Supabase Bearer JWTs, checks PostgreSQL `user_roles WHERE revoked_at IS NULL`, and auto-provisions the user record on first authenticated request. | Prevents trusting mutable client claims while ensuring authenticated requests always have valid `user_id` context. |
 
 ---
 
@@ -92,9 +95,10 @@ Before execution, this specification has been audited against all pending archit
 - Includes Goose `-- +goose Up` / `-- +goose Down` and lock timeout guards (`SET lock_timeout = '3s'; SET statement_timeout = '30s';`).
 
 #### 2. `apps/api/sql/schema/003_curriculum_and_guests.sql`
+- Seeds a deterministic system editorial user (`id = '00000000-0000-0000-0000-000000000001'`, `email = 'curriculum-seed@idep.local'`, `display_name = 'Idep Editorial Team'`) via `INSERT ... ON CONFLICT (id) DO NOTHING` so baseline chapters satisfy foreign key `author_id REFERENCES users(id)`.
 - Creates table `subjects` seeded with the 4 GED subjects (`mathematical-reasoning`, `reasoning-through-language-arts`, `science`, `social-studies`).
 - Creates table `chapters` with `search_tsv` and `current_version_id`.
-- Creates table `chapter_versions` with immutability trigger `trg_chapter_versions_immutable` and constraint `chk_version_provenance`.
+- Creates table `chapter_versions` with immutability trigger `trg_chapter_versions_immutable` and constraint `chk_version_provenance`. Seeds baseline chapters for each subject attributed to the system user.
 - Creates table `chapter_prerequisites` linking version to required chapters.
 - Creates table `guest_sessions` and `guest_chapter_reads` with FK to `chapters(id)`.
 - Adds trigger `trg_chapters_sync_search_tsv` and function `sync_chapter_search_tsv()`.
@@ -104,7 +108,18 @@ Before execution, this specification has been audited against all pending archit
 
 ### 4.2 Backend Implementation (`apps/api`)
 
-#### 1. Database Queries (`apps/api/sql/queries/`)
+#### 1. Authentication & Guest Middleware (`apps/api/internal/middleware/auth.go`)
+- **Bearer JWT Validation:**
+  - Validates incoming `Authorization: Bearer <token>` against the Supabase JWT secret / JWKS.
+  - Resolves active roles (`SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL`).
+  - Auto-provisions the `users` and `user_roles ('user')` records on first authenticated request if not already present.
+  - Injects authenticated user ID and role set into `context.Context`.
+- **Guest HMAC Cookie Evaluation (`idep_guest_session`):**
+  - If no `Authorization` header is present, inspects `idep_guest_session` cookie containing an HMAC-SHA256 signed UUID.
+  - If cookie is missing or invalid, mints a new UUID and sets a signed `HTTPOnly`, `SameSite=Lax`, `Secure` cookie.
+  - Evaluates `guest_chapter_reads` quota for the session.
+
+#### 2. Database Queries (`apps/api/sql/queries/`)
 - **`job_fields.sql`:**
   - `ListActiveJobFields`: Retrieves all active job fields ordered by `display_order ASC`.
   - `GetUserWorkExperiences`: Retrieves a user's configured job fields and roles ordered by `priority_order ASC`.
@@ -122,7 +137,7 @@ Before execution, this specification has been audited against all pending archit
   - `HasGuestReadChapter`: Checks if session has already accessed a specific chapter.
   - `RecordGuestChapterRead`: Records first and last read timestamp for `(session_id, chapter_id)`.
 
-#### 2. Huma OpenAPI 3.1 Operations (`apps/api/internal/handler/`)
+#### 3. Huma OpenAPI 3.1 Operations (`apps/api/internal/handler/`)
 - **`GET /api/v1/job-fields` (Public):**
   - Returns list of available job categories with example roles for onboarding.
 - **`GET /api/v1/me/work-experience` (Auth required):**
@@ -131,9 +146,9 @@ Before execution, this specification has been audited against all pending archit
   - Updates the authenticated user's selected job fields and custom role titles in priority order.
 - **`GET /api/v1/subjects` (Public):**
   - Returns the 4 GED subjects with summaries and chapter counts.
-- **`GET /api/v1/subjects/{slug}` (Public):**
+- **`GET /api/v1/subjects/{subject_slug}` (Public):**
   - Returns subject details with full ordered TOC of published chapters.
-- **`GET /api/v1/chapters/{slug}` (Metered / Auth optional):**
+- **`GET /api/v1/subjects/{subject_slug}/chapters/{chapter_slug}` & `GET /api/v1/chapters/{id}` (Metered / Auth optional):**
   - Middleware checks `Authorization: Bearer <JWT>`:
     - If valid user: returns full chapter content (`is_guest = false`).
     - If unauthenticated guest: evaluates `idep_guest_session` cookie. If read count < 3 or chapter already read, records read and returns content with header `X-Guest-Remaining: N`. If unique read count >= 3 on an unread chapter, returns `HTTP 403 Forbidden` (`GUEST_QUOTA_EXHAUSTED`).
@@ -173,27 +188,52 @@ Before execution, this specification has been audited against all pending archit
 
 ## 5. Verification Gates & Acceptance Criteria
 
-Execution is only considered complete when all five verification gates pass:
+Execution is only considered complete when all six verification gates pass:
 
 1. **Database Schema & Invariants Gate:**
    - Real PostgreSQL 16 migration run: `cmd/migrate up -> down -> up` exits `0`.
    - Seed assertions: `SELECT count(*) FROM job_fields` = 10; `SELECT count(*) FROM subjects` = 4.
+   - Deterministic seed author assertion: `SELECT email FROM users WHERE id = '00000000-0000-0000-0000-000000000001'` returns `'curriculum-seed@idep.local'`.
    - Immutability check: `UPDATE chapter_versions` or `DELETE FROM chapter_versions` raises exception `Table chapter_versions is append-only`.
    - Provenance check: Inserting proposal-sourced version with `author_id = checker_id` fails `chk_version_provenance`.
 
-2. **Guest Metering Gate (`U-13`):**
+2. **Work-Experience Onboarding Gate (`U-01`):**
+   - Authenticated user submits `PUT /api/v1/me/work-experience` with valid codes (`["food_service", "construction"]`) → Returns `HTTP 200 OK`, inserts rows into `user_work_experiences`, and updates `users.onboarding_completed_at` with current timestamp.
+   - Submitting an invalid `job_field_code` (e.g. `"space_travel"`) → Returns `HTTP 422 Unprocessable Entity` or `HTTP 400 Bad Request` without modifying saved state.
+   - User submitting an empty list or skipping → Allowed (`HTTP 200 OK`), leaving `user_work_experiences` empty for fallback to everyday scenarios.
+
+3. **Guest Metering Gate (`U-13`):**
    - Guest reads Chapter 1 → Success, `reads_used` = 1, `remaining` = 2.
    - Guest re-reads Chapter 1 → Success, `reads_used` = 1, `remaining` = 2 (idempotent).
    - Guest reads Chapter 2 & 3 → Success, `remaining` = 0.
    - Guest attempts Chapter 4 → Returns `HTTP 403 Forbidden` (`GUEST_QUOTA_EXHAUSTED`).
    - Authenticated user reads Chapter 4 → Returns `HTTP 200 OK` (unlimited).
 
-3. **Curriculum Search Gate (`U-03`):**
+4. **Curriculum Search Gate (`U-03`):**
    - Querying `GET /api/v1/search?q=photosynthesis` returns relevant Science chapters with rank score > 0 and non-empty snippet within 50ms.
 
-4. **Codegen Synchronization Gate:**
+5. **Codegen Synchronization Gate:**
    - `pnpm codegen` runs cleanly with zero drift between Go Huma routes, `apps/api/openapi.json`, and `apps/web/lib/api/schema.d.ts`.
 
-5. **CI Quality & Monorepo Test Gate:**
+6. **CI Quality & Monorepo Test Gate:**
    - `pnpm lint`, `pnpm --filter web check-types`, and `pnpm test` pass with 0 errors and 0 warnings.
+
+---
+
+## 6. Files Touched & Blast-Radius Guard
+
+| Action | File Path |
+| :--- | :--- |
+| **new** | `apps/api/sql/schema/002_work_experience.sql`, `apps/api/sql/schema/003_curriculum_and_guests.sql` |
+| **new** | `apps/api/sql/queries/job_fields.sql`, `apps/api/sql/queries/curriculum.sql`, `apps/api/sql/queries/guests.sql` |
+| **new** | `apps/api/internal/middleware/auth.go`, `apps/api/internal/middleware/auth_test.go` |
+| **new** | `apps/api/internal/domain/curriculum.go`, `apps/api/internal/domain/work_experience.go` |
+| **new** | `apps/api/internal/repository/curriculum_repo.go`, `apps/api/internal/repository/work_experience_repo.go` |
+| **new** | `apps/api/internal/service/curriculum_service.go`, `apps/api/internal/service/work_experience_service.go` |
+| **new** | `apps/api/internal/handler/curriculum_handler.go`, `apps/api/internal/handler/work_experience_handler.go` |
+| **new** | `apps/web/app/subjects/page.tsx`, `apps/web/app/subjects/[subjectSlug]/page.tsx`, `apps/web/app/subjects/[subjectSlug]/[chapterSlug]/page.tsx`, `apps/web/app/onboarding/page.tsx` |
+| **edit** | `apps/api/cmd/server/main.go`, `apps/api/cmd/server/main_test.go`, `apps/web/lib/api/go.ts`, `apps/web/lib/api/index.ts` |
+| **regenerated** | `apps/api/internal/repository/db/*`, `apps/api/openapi.json`, `apps/web/lib/api/schema.d.ts` |
+| **must NOT change** | `apps/api/internal/guardrails_test.go`, `apps/api/sql/schema/001_identity_and_rbac.sql`, `apps/web/lib/supabase.ts`, `packages/eslint-config/**`, `.github/workflows/security.yml` |
+
 

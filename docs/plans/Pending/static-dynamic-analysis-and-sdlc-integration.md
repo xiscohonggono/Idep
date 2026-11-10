@@ -37,7 +37,7 @@ This plan establishes a comprehensive quality and security testing framework spa
 #### S2. Frontend Security & Strict Type Checking (`apps/web`)
 - **Problem:** ESLint in `apps/web` only checks syntax and styling without specialized security rules.
 - **Implementation:**
-  1. Add `@eslint-community/eslint-plugin-security` to `apps/web/eslint.config.js` to flag vulnerable regexes, insecure object access, and eval patterns.
+  1. Add `@eslint-community/eslint-plugin-security` to `apps/web/eslint.config.js` to flag vulnerable regexes, insecure object access, and eval patterns (*Note: subject to explicit user confirmation under `AGENTS.md` §4 Ponytail Discipline before adding to `package.json`*).
   2. Maintain zero-warning enforcement (`eslint --max-warnings 0`) in `apps/web/package.json`.
   3. Ensure `check-types` (`next typegen && tsc --noEmit`) runs in parallel via Turborepo task pipeline.
 
@@ -54,14 +54,15 @@ This plan establishes a comprehensive quality and security testing framework spa
 #### D1. Go Concurrency & Race Detector (`-race`)
 - **Problem:** Data races in multi-threaded Go web servers (`Chi` + `pgxpool`) cause intermittent panics and corrupted memory states in production that unit tests without `-race` fail to detect.
 - **Implementation:**
-  1. Update `.github/workflows/ci.yml` step `Run Go Vet & Test`:
+  1. Update `.github/workflows/ci.yml` step `Run Go Vet, Test & Build` under `test-api`, **preserving the `postgres:16-alpine` service container, migration verification (`cmd/migrate up -> down -> up`), and `bin/migrate` build**:
      ```yaml
-     - name: Run Go Vet & Test
+     - name: Run Go Vet, Test & Build
        working-directory: apps/api
        run: |
          go vet ./...
          go test -race -v -coverprofile=coverage.out ./...
          go build -o bin/server ./cmd/server
+         go build -o bin/migrate ./cmd/migrate
      ```
   2. Verify that all repository mock and handler tests pass under `-race` without race conditions.
 
@@ -85,7 +86,7 @@ This plan establishes a comprehensive quality and security testing framework spa
 #### D4. End-to-End Dynamic Browser Testing (Playwright)
 - **Problem:** Vitest unit tests mock the DOM via `jsdom`, failing to verify real browser navigation, CSS rendering, cookies, and client-side hydration.
 - **Implementation:**
-  1. Configure Playwright in `apps/web/` for critical path testing (login/auth, navigation, data tables).
+  1. Configure Playwright in `apps/web/` for critical path testing (login/auth, navigation, data tables) (*Note: subject to explicit user confirmation under `AGENTS.md` §4 Ponytail Discipline before adding to `package.json`*).
   2. Add headless CI execution for PR validation.
 
 ---
@@ -119,4 +120,15 @@ To approve and move this plan to `docs/plans/Implemented/`, the following verifi
    - Schemathesis runs against local Go server with zero contract deviations.
 3. **CI Pipeline Green:**
    - Updated `.github/workflows/ci.yml` and `.github/workflows/security.yml` complete successfully in GitHub Actions.
+
+---
+
+## 4. Files Touched & Blast-Radius Guard
+
+| Action | File Path |
+| :--- | :--- |
+| **new** | `apps/api/.golangci.yml`, `apps/api/internal/handler/*_fuzz_test.go` |
+| **edit** | `.github/workflows/ci.yml`, `.github/workflows/security.yml`, `apps/api/package.json`, `apps/web/package.json`, `apps/web/eslint.config.js` |
+| **must NOT change** | `apps/api/internal/guardrails_test.go`, `apps/api/sql/**`, `apps/api/sqlc.yaml`, `apps/api/internal/repository/db/**`, `apps/web/lib/supabase.ts` |
+
 

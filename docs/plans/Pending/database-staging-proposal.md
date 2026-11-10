@@ -43,9 +43,9 @@ flowchart LR
 
 ---
 
-## 2. Staged Rollout Waves (Stages 0–4)
+## 2. Staged Rollout Waves (Stages 0–5)
 
-Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four product delivery phases so each phase can be deployed, verified, and rolled back independently.
+Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four product delivery phases and post-Phase 4 RAG upgrade so each phase can be deployed, verified, and rolled back independently.
 
 | Stage | Migration Files (`apps/api/sql/schema/`) | Tables Introduced / Modified | Stories Unlocked |
 | :--- | :--- | :--- | :--- |
@@ -54,6 +54,7 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
 | **Stage 2** *(Phase 2 MVP: Maker–Checker Core)* | `004_proposals_and_revisions.sql`<br>`005_checker_governance_and_notifications.sql` | `proposals` (`chk_in_review_claim`, `chk_published_provenance`), `proposal_contributors`, `proposal_revisions` (`trg_proposal_revisions_immutable`), `checker_applications`, `notifications` + FK `chapter_versions.source_proposal_id` | `E-01`, `E-03`, `E-07`, `E-08`, `C-01`, `C-03`, `C-04`, `C-05`, `C-06`, `C-09`, `C-10` |
 | **Stage 3** *(Phase 3 MVP: AI Sidebar & Active Recall)* | `006_study_highlights_and_ai.sql` | `study_highlights`, `ai_explanations`, `ai_elaborations`, `ai_explanation_feedback`, `reexplanation_attempts` | `U-04`, `U-05`, `U-06`, `U-07`, `U-08`, `U-09`, `U-10` |
 | **Stage 4** *(Phase 4 Fast-Follow: Should & Could)* | `007_educator_verification.sql`<br>`008_citations_comments_and_reports.sql` | `educator_verifications`, `proposal_citations`, `proposal_line_comments`, `ai_quality_reports` | `U-02`, `U-11`, `U-12`, `E-02`, `E-04`, `E-05`, `E-06`, `E-09`, `E-10`, `C-02`, `C-07`, `C-08` |
+| **Stage 5** *(Post-Phase 4: Dual-Corpus RAG Pipeline)* | `009_rag_knowledge_pipeline.sql` | `knowledge_sources`, `knowledge_documents`, `knowledge_chunks` (with `pgvector` partial HNSW indexes) | Curricular & vocational retrieval upgrade (`ADR-007`) |
 
 ---
 
@@ -114,6 +115,16 @@ Migrations under `apps/api/sql/schema/` are sequenced to match Idep's four produ
   - Confirm `educator_verifications` rejects `reviewed_by = user_id` and rejects `status = 'rejected'` without `decision_reason` (`E-02`).
 - **Rollback Strategy:**
   - Drop `ai_quality_reports`, `proposal_line_comments`, `proposal_citations`, `educator_verifications`.
+
+### 3.6 Stage 5: Dual-Corpus RAG Pipeline (`009`) (Post-Phase 4)
+- **Forward Steps:**
+  1. Upgrade CI PostgreSQL service container to `pgvector/pgvector:pg16` and add `vector` overrides to `apps/api/sqlc.yaml`.
+  2. Enable `vector` extension (`CREATE EXTENSION IF NOT EXISTS vector;`).
+  3. Create `knowledge_sources`, `knowledge_documents`, and `knowledge_chunks` (with partial HNSW indexes `idx_knowledge_chunks_curriculum_hnsw` and `idx_knowledge_chunks_vocational_hnsw`).
+- **Verification Gate:**
+  - Verify `vector(512)` embeddings insert, search with `<=>` cosine distance, and hybrid search RRF query compiles cleanly under `sqlc`.
+- **Rollback Strategy:**
+  - Drop partial HNSW indexes, `knowledge_chunks`, `knowledge_documents`, `knowledge_sources`, and drop extension `vector`. Stage 0–4 tables remain completely unaffected.
 
 ---
 

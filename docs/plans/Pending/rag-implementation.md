@@ -1,9 +1,10 @@
 # RAG Implementation Plan: Dual-Corpus Curricular & Vocational Knowledge Pipeline
 
-> **Status:** Proposed (Pending Architectural Approval)  
-> **Scope:** Architecture Decision Record extension (`ADR-007`), PostgreSQL `pgvector` migration (`007_rag_knowledge_pipeline.sql`), knowledge source ingestion & chunking pipeline, hybrid search (HNSW dense vector + `tsvector` sparse BM25 with Reciprocal Rank Fusion), Go retrieval service in `apps/api`, Huma OpenAPI 3.1 endpoints, and grounded sidebar citation UI in `apps/web`.  
-> **Author:** Antigravity (Architect) · **Builder:** Claude Code via `delegate-to-claude` · **Reviewer:** Gemini/Architect  
-> **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
+> **Status:** Proposed (Upgraded Architecture — Post-Phase 4 Initiative)  
+> **Scope:** Architecture Decision Record extension (`ADR-007`), PostgreSQL `pgvector` migration (`009_rag_knowledge_pipeline.sql`), standardized Firecrawl offline ingestion pipeline, partial HNSW indexes, Parent-Child context expansion, cross-domain Functional Mechanism Mapping (HyDE), and grounded citation UI in `apps/web`.  
+> **Author:** Antigravity (Architect) · **Builder:** Claude Code via `delegate-to-claude` · **Reviewer:** Gemini / Architect  
+> **Execution Gate:** **Scheduled strictly after Phase 3 (AI Core MVP) and Phase 4 (Editorial Upgrades) are complete.**  
+> **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`phase-3-ai-study-sidebar-and-active-recall.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/phase-3-ai-study-sidebar-and-active-recall.md) · [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
 ---
 
@@ -11,7 +12,9 @@
 
 | Rev | Date | Author | Description |
 | :--- | :--- | :--- | :--- |
-| 1 | 2026-11-08 | Antigravity / Architect | Initial specification proposal: Recommended external sources, Dual-Corpus RAG architecture, `pgvector` schema design, hybrid retrieval with RRF, Go service contracts, and benchmark-driven verification criteria. |
+| 1 | 2026-11-08 | Antigravity / Architect | Initial specification: Dual-Corpus RAG architecture, `pgvector` schema design, hybrid retrieval with RRF, and evaluation benchmarks. |
+| 2 | 2026-11-09 | Antigravity / Architect | **Production Upgrades:**<br>1. **Cross-Domain Functional Mapping (HyDE):** Solves vocabulary gap between academic science text and trade SOPs.<br>2. **Denormalized Partial HNSW Indexes:** Replaces relational join filtering with dedicated partial vector indexes for curriculum vs. trade.<br>3. **Parent-Child Chunking:** Granular child chunks (150 words) for vector search accuracy + parent context windows (600 words) for prompt generation.<br>4. **Firecrawl Ingestion Pipeline:** Replaces custom PDF parsers with `firecrawl-parse` and `firecrawl-scrape` for offline batch extraction. |
+| 3 | 2026-11-09 | Antigravity / Architect | **Roadmap Reconciliation & Budget Hardening:**<br>1. Renumbered migration to `009_rag_knowledge_pipeline.sql` to avoid collision with Phase 4's `007` and `008`.<br>2. Specified CI service upgrade to `pgvector/pgvector:pg16` and `sqlc.yaml` vector overrides.<br>3. Allocated strict latency sub-budgets with automatic fallback to BM25 to guarantee adherence to the 15s hard ceiling.<br>4. Added explicit Files Touched and Blast-Radius Guard table. |
 
 ---
 
@@ -19,15 +22,15 @@
 
 Idep’s core value proposition is turning working adults' prior job experience into an unfair learning advantage by pairing community-curated GED study notes with an AI study sidebar that builds **workplace analogies (`U-06`)**, flags **analogy limitations (`U-07`)**, and resolves **prerequisite knowledge gaps (`U-08`)**.
 
-Currently, the AI pipeline relies on prompt-level zero-shot generation bounded only by the highlighted 1–3 paragraphs and basic role titles. This plan upgrades the AI service into a **production-grade Dual-Corpus Retrieval-Augmented Generation (RAG) system**:
-1. **Curricular Grounding (GEC / GED Standards):** Retrieves official high-school equivalency performance descriptors, prerequisite chapter excerpts, and documented student misconception inventories so the AI never produces misleading pedagogical analogies.
-2. **Vocational Grounding (Real-World Workflows & SOPs):** Retrieves verified vocational tasks, tools, and standard operating procedures (SOPs) based on the learner's chosen job field, ensuring analogies reflect authentic workplace realities rather than superficial hallucinations.
+In Phase 3, the AI sidebar uses grounded zero-shot generation bounded by the highlighted chapter text and user trade titles. This plan upgrades the system to a **production-grade Dual-Corpus Retrieval-Augmented Generation (RAG) system**:
+1. **Curricular Grounding (GED Standards & Misconceptions):** Retrieves official high-school equivalency performance descriptors, prerequisite chapter excerpts, and documented student misconception inventories so the AI never produces misleading pedagogical analogies.
+2. **Vocational Grounding (Real-World Workflows & SOPs):** Retrieves verified vocational tasks, tools, and Standard Operating Procedures (SOPs) based on the learner's chosen job field, ensuring analogies reflect authentic workplace realities rather than superficial stereotypes.
 3. **Analogy Failure Grounding (`U-07`):** Explicitly retrieves the structural divergence between the scientific/mathematical mechanism and the workplace process, forcing high-fidelity identification of where the analogy breaks down.
 
 ```mermaid
 flowchart TD
     subgraph Client["Presentation Tier (apps/web)"]
-        UI["Learner Highlights 1-3 Paragraphs & Selects Job Field (U-04, U-06)"]
+        UI["Learner Highlights 1-3 Paragraphs & Selects Trade (U-04, U-06)"]
         Sidebar["AI Sidebar Renders Step-by-Step Analogy with Cited Source Badges"]
     end
 
@@ -36,10 +39,11 @@ flowchart TD
         InputVal["Verbatim Substring & Bounds Check (15-3000 chars, 1-3 paragraphs)"]
         
         subgraph RAGOrchestrator["Dual-Corpus RAG Orchestrator"]
-            QueryGen["Query Decomposer (Curriculum Query + Vocational Query)"]
-            HybridRetriever["Hybrid Search Engine\n(HNSW Cosine Sim + tsvector BM25)"]
+            HyDE["Functional Mechanism Decomposer\n(Academic Proposition -> Trade Workflow HyDE Query)"]
+            CurriculumRetriever["Curriculum Retriever\n(idx_chunks_curriculum_hnsw + BM25)"]
+            VocationalRetriever["Vocational Retriever\n(idx_chunks_vocational_hnsw + BM25)"]
             RRF["Reciprocal Rank Fusion (k=60)"]
-            Rerank["Cross-Encoder / Top-K Compressor (Top 3 Curricular + Top 3 Vocational)"]
+            ParentExpand["Parent-Child Context Expansion\n(Inject Parent 600-Word Context)"]
         end
 
         LLMPrompt["Context Assembler + Strict JSON Schema Prompt"]
@@ -48,53 +52,43 @@ flowchart TD
     end
 
     subgraph DB["Persistence Tier (PostgreSQL 16 + pgvector)"]
-        PGV[("pgvector HNSW Index\ntext-embedding-3-small (512d)")]
-        TSV[("GIN Index (tsvector text_search)")]
-        KB_Curriculum[("Curriculum Knowledge Chunks\n(GED Standards, Sibling Chapters, Misconceptions)")]
-        KB_Vocational[("Vocational Knowledge Chunks\n(O*NET Tasks, OSHA/HACCP SOPs, Tools)")]
-        KB_Exemplars[("Community Exemplars\n(ai_explanation_feedback net-likes)")]
+        HNSW_Curriculum[("Partial HNSW: Curriculum\nWHERE source_type = 'curriculum'")]
+        HNSW_Vocational[("Partial HNSW: Vocational\nWHERE source_type = 'vocational'")]
+        GIN_TSV[("GIN Index (text_search_tsv)")]
+        Chunks[("knowledge_chunks\n(content_text + parent_context_text)")]
     end
 
-    UI --> AuthVal --> InputVal --> QueryGen
-    QueryGen --> HybridRetriever
-    HybridRetriever <--> PGV & TSV
-    KB_Curriculum & KB_Vocational & KB_Exemplars --- PGV & TSV
-    HybridRetriever --> RRF --> Rerank --> LLMPrompt
-    LLMPrompt --> OpenAI --> SchemaVal --> Sidebar
+    UI --> AuthVal --> InputVal --> HyDE
+    HyDE --> CurriculumRetriever & VocationalRetriever
+    CurriculumRetriever <--> HNSW_Curriculum & GIN_TSV
+    VocationalRetriever <--> HNSW_Vocational & GIN_TSV
+    CurriculumRetriever & VocationalRetriever --> RRF --> ParentExpand
+    Chunks -.->|"Parent Context"| ParentExpand
+    ParentExpand --> LLMPrompt --> OpenAI --> SchemaVal --> Sidebar
 ```
 
 ---
 
-## 2. Recommended Knowledge Sources
+## 2. Recommended Knowledge Sources & Ingestion Pipeline
 
-To avoid hallucinations, legal friction, and stale data, sources are categorized into **Curricular (Target Knowledge)** and **Vocational (Source Metaphor Knowledge)** with explicit licensing, update frequency, and ingestion formats:
+To avoid hallucinations and stale data, sources are categorized into **Curricular (Target Knowledge)** and **Vocational (Source Metaphor Knowledge)**.
 
-### 2.1 Curricular Knowledge Sources (GEC / GED Standards)
+### 2.1 Ingestion Sources
 
-| Source Name | Authoritative Origin & License | Content Focus & Utility in Idep | Ingestion Format | Update Cadence |
-| :--- | :--- | :--- | :--- | :--- |
-| **GED Testing Service: Assessment Guide for Educators** | GEDTS / Pearson VUE (Public Guidance / Fair Use educational reference) | Official High School Equivalency targets, Webb's Depth of Knowledge (DOK 1–3) descriptors, assessment targets, and formula sheet boundaries across all 4 subjects. | PDF → Markdown via structural parser | Annual / per curriculum revision |
-| **OpenStax High-School / College-Prep Textbooks** | Rice University (Creative Commons Attribution 4.0 International - CC BY 4.0) | Authoritative, peer-reviewed reference texts for Science (Concepts of Biology, Chemistry, Physics), Social Studies (U.S. History, American Government), and Math (Pre-algebra, Elementary Algebra). | Clean JSON/Markdown via OpenStax API/S3 | Semi-annual |
-| **Physics & Math Education Research (PER/MER) Concept Inventories** | Academic open inventories (e.g., Force Concept Inventory, Math Diagnostic Inventories) | Documented lists of common adult learner conceptual fallacies, intuitive traps, and distractors. Injected into context to actively steer analogies away from misconceptions. | Curated structured JSON | Per release |
-| **Idep Internal Published Chapter Corpus** | Idep Community Makers & Checkers (`chapter_versions` where status is published) | Sibling and prerequisite chapters within the platform. Allows retrieval of exact terminology definitions and closed-world chapter IDs (`U-05`, `U-08`). | Real-time trigger on Maker-Checker publication | Instantaneous on chapter publish |
-
-### 2.2 Vocational Knowledge Sources (Professional Workplace Experience)
-
-| Source Name | Authoritative Origin & License | Content Focus & Utility in Idep | Ingestion Format | Update Cadence |
-| :--- | :--- | :--- | :--- | :--- |
-| **O\*NET Database (Occupational Information Network)** | U.S. Department of Labor / Employment & Training Administration (Public Domain / CC BY 4.0) | Standard Occupational Classification (SOC) mappings for Idep’s 10 starter job fields. Contains 19,000+ verified Task Statements, Detailed Work Activities (DWAs), Tools & Technology, and Work Contexts. | Direct PostgreSQL relational load / CSV | Annual release (e.g., O*NET 29.x) |
-| **OSHA General Industry & Construction Standards (29 CFR 1910 & 1926)** | U.S. Occupational Safety & Health Administration (U.S. Federal Government Public Domain) | Real-world safety rules: Lockout/Tagout (energy isolation), hazard communication (SDS sheets), PPE ratings, machine guarding, fall protection. Essential for blue-collar trades and warehouse analogies. | XML / Federal Register API | Quarterly check |
-| **FDA Food Code & USDA HACCP Guidelines** | U.S. FDA & USDA Food Safety Inspection Service (Public Domain) | Critical Control Points (CCPs), time/temperature control for safety (TCS), sanitization protocols, cross-contamination barriers. Grounds culinary and hospitality analogies. | PDF / Text extracted to Markdown | Per publication cycle (2-4 years) |
-| **Industry Open Standard Operating Procedures (SOPs)** | Open vocational training manuals (e.g., NRF Customer Service, ASE Automotive Tasks, CSCMP Logistics) | Standard step-by-step procedures: opening/closing cash drawers, POS terminal reconciliation, multi-point brake inspection, inventory cycle counts, FIFO storage. | Markdown task guides | Periodic curation |
-| **Idep Community Exemplar Analogy Bank** | Idep Learner & Checker community (`ai_explanation_feedback` with net likes $\ge 3$) | High-performing historical analogies already validated by real learners and verified educators. Used for few-shot in-context learning. | Dynamic database view | Continuous / real-time |
+| Source Name | Authoritative Origin & License | Content Focus & Utility in Idep | Ingestion Tooling |
+| :--- | :--- | :--- | :--- |
+| **GED Testing Service: Assessment Guide for Educators** | GEDTS / Pearson VUE (Public Guidance) | Official High School Equivalency targets, Webb's Depth of Knowledge descriptors, and formula sheet boundaries. | **`firecrawl-parse`** (PDF to Markdown) |
+| **OpenStax High-School / College-Prep Textbooks** | Rice University (CC BY 4.0) | Authoritative reference texts for Science (Biology, Chemistry, Physics), Social Studies, and Math. | OpenStax Public API / JSON Export |
+| **O\*NET 29.x Database** | U.S. Department of Labor (Public Domain) | Standard Occupational Classification (SOC) mappings for Idep’s 10 starter trades. 19,000+ verified task statements and tools. | Relational CSV Load into `cmd/ingest` |
+| **OSHA General Industry Standards (29 CFR 1910)** | U.S. OSHA (Federal Public Domain) | Real-world safety rules: Lockout/Tagout, hazard communication, PPE, machine guarding for blue-collar trades. | **`firecrawl-scrape`** (Federal Register API) |
+| **FDA Food Code & USDA HACCP Guidelines** | U.S. FDA & USDA (Public Domain) | Critical Control Points, temperature control, sanitization protocols for culinary and hospitality analogies. | **`firecrawl-parse`** (FDA PDF to Markdown) |
+| **Idep Internal Published Chapters** | Idep Makers & Checkers (`chapter_versions`) | Platform chapter corpus for exact terminology and closed-world links (`U-05`, `U-08`). | Direct PostgreSQL event trigger |
 
 ---
 
-## 3. Database Architecture & Schema (`apps/api/sql/schema/007_rag_knowledge_pipeline.sql`)
+## 3. Database Architecture & Schema (`apps/api/sql/schema/009_rag_knowledge_pipeline.sql`)
 
-In accordance with [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md), we do not add separate vector database services. We enable `pgvector` inside the existing PostgreSQL 16 instance.
-
-### 3.1 Migration DDL
+All embeddings remain strictly inside **PostgreSQL 16 via `pgvector`** (no third-party vector SaaS). When this stage is executed, the CI service image in `.github/workflows/ci.yml` must be configured with `image: pgvector/pgvector:pg16` so the vector extension compiles and runs in CI. Furthermore, `apps/api/sqlc.yaml` is extended with an override mapping PostgreSQL `vector` to `[]float32` or string representation for `sqlc generate`.
 
 ```sql
 -- +goose Up
@@ -125,20 +119,30 @@ CREATE TABLE knowledge_documents (
     source_id UUID NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
     external_id TEXT, -- e.g. O*NET SOC code, OpenStax chapter ID
     title TEXT NOT NULL,
-    section_hierarchy TEXT[] NOT NULL DEFAULT '{}', -- e.g. ['Biology', 'Cell Structure', 'Mitochondria']
+    section_hierarchy TEXT[] NOT NULL DEFAULT '{}',
     raw_content_markdown TEXT NOT NULL,
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Granular Knowledge Chunks (Dense Vector + Full-Text Search)
+-- 4. Granular Knowledge Chunks (Parent-Child Architecture)
 CREATE TABLE knowledge_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
     source_id UUID NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+    
+    -- Denormalized for high-speed partial indexing without relational join overhead
+    source_type TEXT NOT NULL CHECK (source_type IN ('curriculum', 'vocational', 'exemplar')),
+    job_field_code TEXT REFERENCES job_fields(code) ON DELETE SET NULL,
+    
     chunk_index INTEGER NOT NULL,
-    content_text TEXT NOT NULL CHECK (char_length(btrim(content_text)) BETWEEN 20 AND 4000),
+    
+    -- Child Chunk (Atomic 150-word search target)
+    content_text TEXT NOT NULL CHECK (char_length(btrim(content_text)) BETWEEN 20 AND 2000),
     token_count INTEGER NOT NULL CHECK (token_count > 0),
+    
+    -- Parent Context Window (Enriched 600-word surrounding section passed to LLM)
+    parent_context_text TEXT NOT NULL CHECK (char_length(btrim(parent_context_text)) >= char_length(btrim(content_text))),
     
     -- Dense Embedding (OpenAI text-embedding-3-small truncated to 512d)
     embedding vector(512) NOT NULL,
@@ -152,29 +156,33 @@ CREATE TABLE knowledge_chunks (
     CONSTRAINT uq_knowledge_chunks_doc_index UNIQUE (document_id, chunk_index)
 );
 
--- 5. Indexes for Hybrid Retrieval
--- HNSW Cosine Index for dense vector search (m=16, ef_construction=64)
-CREATE INDEX idx_knowledge_chunks_embedding_hnsw 
+-- 5. Dedicated Partial HNSW Indexes (Eliminates graph traversal dead-ends)
+-- Partial HNSW for Curriculum Search
+CREATE INDEX idx_knowledge_chunks_curriculum_hnsw 
 ON knowledge_chunks USING hnsw (embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
+WITH (m = 16, ef_construction = 64)
+WHERE source_type = 'curriculum';
+
+-- Partial HNSW for Vocational Search
+CREATE INDEX idx_knowledge_chunks_vocational_hnsw 
+ON knowledge_chunks USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64)
+WHERE source_type = 'vocational';
 
 -- GIN Index for sparse keyword search
 CREATE INDEX idx_knowledge_chunks_tsv 
 ON knowledge_chunks USING gin (text_search_tsv);
 
--- Filtering indexes
-CREATE INDEX idx_knowledge_sources_type_field 
-ON knowledge_sources (source_type, job_field_code) 
-WHERE is_active = TRUE;
-
-CREATE INDEX idx_knowledge_chunks_source_id 
-ON knowledge_chunks (source_id);
+-- Filtering index for trade lookup
+CREATE INDEX idx_knowledge_chunks_trade_lookup
+ON knowledge_chunks (job_field_code, source_type)
+WHERE job_field_code IS NOT NULL;
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_knowledge_chunks_source_id;
-DROP INDEX IF EXISTS idx_knowledge_sources_type_field;
+DROP INDEX IF EXISTS idx_knowledge_chunks_trade_lookup;
 DROP INDEX IF EXISTS idx_knowledge_chunks_tsv;
-DROP INDEX IF EXISTS idx_knowledge_chunks_embedding_hnsw;
+DROP INDEX IF EXISTS idx_knowledge_chunks_vocational_hnsw;
+DROP INDEX IF EXISTS idx_knowledge_chunks_curriculum_hnsw;
 DROP TABLE IF EXISTS knowledge_chunks;
 DROP TABLE IF EXISTS knowledge_documents;
 DROP TABLE IF EXISTS knowledge_sources;
@@ -185,25 +193,21 @@ DROP EXTENSION IF EXISTS vector;
 
 ## 4. Hybrid Retrieval Pipeline (Go Implementation Contract)
 
-### 4.1 Hybrid Search & Reciprocal Rank Fusion (RRF) SQL Query
+### 4.1 Hybrid Search with Partial Index Routing
 
 Compiled via `sqlc` in `apps/api/sql/queries/rag.sql`:
 
 ```sql
--- name: SearchKnowledgeChunksHybrid :many
+-- name: SearchCurriculumChunksHybrid :many
 WITH dense_search AS (
     SELECT 
         c.id,
         c.content_text,
+        c.parent_context_text,
         c.metadata_json,
-        s.source_type,
-        s.name AS source_name,
         ROW_NUMBER() OVER (ORDER BY c.embedding <=> $1::vector) AS rank_dense
     FROM knowledge_chunks c
-    JOIN knowledge_sources s ON c.source_id = s.id
-    WHERE s.is_active = TRUE
-      AND (s.source_type = $2::text OR $2::text IS NULL)
-      AND (s.job_field_code = $3::text OR s.job_field_code IS NULL)
+    WHERE c.source_type = 'curriculum'
     ORDER BY c.embedding <=> $1::vector
     LIMIT 20
 ),
@@ -211,24 +215,19 @@ sparse_search AS (
     SELECT 
         c.id,
         c.content_text,
+        c.parent_context_text,
         c.metadata_json,
-        s.source_type,
-        s.name AS source_name,
-        ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $4)) DESC) AS rank_sparse
+        ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $2)) DESC) AS rank_sparse
     FROM knowledge_chunks c
-    JOIN knowledge_sources s ON c.source_id = s.id
-    WHERE s.is_active = TRUE
-      AND (s.source_type = $2::text OR $2::text IS NULL)
-      AND (s.job_field_code = $3::text OR s.job_field_code IS NULL)
-      AND c.text_search_tsv @@ plainto_tsquery('english', $4)
-    ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $4)) DESC
+    WHERE c.source_type = 'curriculum'
+      AND c.text_search_tsv @@ plainto_tsquery('english', $2)
+    ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $2)) DESC
     LIMIT 20
 )
 SELECT 
     COALESCE(d.id, s.id) AS chunk_id,
     COALESCE(d.content_text, s.content_text) AS content_text,
-    COALESCE(d.source_name, s.source_name) AS source_name,
-    COALESCE(d.source_type, s.source_type) AS source_type,
+    COALESCE(d.parent_context_text, s.parent_context_text) AS parent_context_text,
     COALESCE(d.metadata_json, s.metadata_json) AS metadata_json,
     (
         COALESCE(1.0 / (60 + d.rank_dense), 0.0) +
@@ -237,79 +236,153 @@ SELECT
 FROM dense_search d
 FULL OUTER JOIN sparse_search s ON d.id = s.id
 ORDER BY rrf_score DESC
-LIMIT $5;
+LIMIT $3;
+
+-- name: SearchVocationalChunksHybrid :many
+WITH dense_search AS (
+    SELECT 
+        c.id,
+        c.content_text,
+        c.parent_context_text,
+        c.metadata_json,
+        ROW_NUMBER() OVER (ORDER BY c.embedding <=> $1::vector) AS rank_dense
+    FROM knowledge_chunks c
+    WHERE c.source_type = 'vocational'
+      AND (c.job_field_code = $2::text OR $2::text IS NULL)
+    ORDER BY c.embedding <=> $1::vector
+    LIMIT 20
+),
+sparse_search AS (
+    SELECT 
+        c.id,
+        c.content_text,
+        c.parent_context_text,
+        c.metadata_json,
+        ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $3)) DESC) AS rank_sparse
+    FROM knowledge_chunks c
+    WHERE c.source_type = 'vocational'
+      AND (c.job_field_code = $2::text OR $2::text IS NULL)
+      AND c.text_search_tsv @@ plainto_tsquery('english', $3)
+    ORDER BY ts_rank_cd(c.text_search_tsv, plainto_tsquery('english', $3)) DESC
+    LIMIT 20
+)
+SELECT 
+    COALESCE(d.id, s.id) AS chunk_id,
+    COALESCE(d.content_text, s.content_text) AS content_text,
+    COALESCE(d.parent_context_text, s.parent_context_text) AS parent_context_text,
+    COALESCE(d.metadata_json, s.metadata_json) AS metadata_json,
+    (
+        COALESCE(1.0 / (60 + d.rank_dense), 0.0) +
+        COALESCE(1.0 / (60 + s.rank_sparse), 0.0)
+    )::FLOAT8 AS rrf_score
+FROM dense_search d
+FULL OUTER JOIN sparse_search s ON d.id = s.id
+ORDER BY rrf_score DESC
+LIMIT $4;
 ```
 
-### 4.2 Query Decomposition & Context Assembly Rules
+---
 
-When a request arrives at `POST /api/v1/chapters/{id}/explanations`:
-1. **Passage Deconstruction:** The backend extracts the key academic proposition from `selected_text` (e.g., *"mitochondria produce adenosine triphosphate through cellular respiration"*).
-2. **Dual Query Execution:**
-   - **Curriculum Retrieval:** Query against `source_type = 'curriculum'` for prerequisite targets, definition clarity, and known student pitfalls.
-   - **Vocational Retrieval:** Query against `source_type = 'vocational'` and `job_field_code = $user_profession` for concrete tasks, SOP steps, and physical mechanisms.
-3. **Citation & Boundary Packing:**
-   Top chunks are formatted into bounded XML tags within the system prompt:
-   ```xml
-   <retrieved_curricular_standards>
-     [Standard 1]: GED Science Sc.4.a - Chemical reactions in cellular systems.
-     [Pitfall to avoid]: Confusing anaerobic glycolysis with aerobic respiration.
-   </retrieved_curricular_standards>
-   <retrieved_vocational_procedures job_field="warehousing_logistics">
-     [Procedure 1]: Pallet breakdown & intermediate container distribution.
-     [Physical boundary]: Pallet jacks require mechanical leverage; energy is stored in battery packs.
-   </retrieved_vocational_procedures>
+### 4.2 Cross-Domain Query Decomposition (Functional Mechanism Mapping / HyDE) & Latency Sub-Budgets
+
+To bridge the vocabulary mismatch between academic text and trade SOPs:
+1. **Passage Deconstruction:** Extracts the academic proposition:
+   - *Example:* *"Mitochondria produce ATP by oxidizing pyruvate and transferring electrons through the inner membrane."*
+2. **Functional Mechanism Extraction (HyDE):**
+   A fast prompt extracts the abstract operational mechanism and generates a synthetic trade search string:
+   - *Functional Pattern:* *"Receiving raw fuel/inventory, breaking it down in stages, generating packaged energy/output, heat byproduct."*
+   - *Synthesized F&B Search Query:* *"Commercial kitchen prep, food ingredients delivery, cooking station heat transformation, plated dishes output."*
+3. **Targeted Vector Retrieval:**
+   - Academic proposition queries `SearchCurriculumChunksHybrid`.
+   - Synthesized trade search string queries `SearchVocationalChunksHybrid`.
+4. **Parent Context Assembly:**
+   - The top 3 ranked chunks from each corpus contribute their **`parent_context_text`** (600 words) to the system prompt, giving the LLM deep operational context without vector search noise.
+
+#### Latency Budget Allocation & Fallback Degradation
+To strictly guarantee compliance with `project_guardrails.md` §4 (hard 15-second LLM timeout ceiling) and the p95 6.5s latency target:
+- **HyDE Decomposition Budget:** Allocated `2.5s` hard context timeout.
+- **OpenAI Embedding Generation Budget:** Allocated `1.5s` hard timeout.
+- **Database Hybrid Retrieval Budget:** Allocated `200ms` query timeout.
+- **Main Structured Analogy Generation Budget:** Allocated remaining context window (`~10.0s`).
+- **Fail-Safe Fallback:** If the HyDE call or vector embedding call times out or returns an error, the orchestrator immediately falls back to sparse BM25 retrieval over `knowledge_chunks` + zero-shot generation within the remaining deadline. Real-time learner requests **never fail with HTTP 503** due to upstream vector latency.
+
+---
+
+## 5. Benchmarks & Acceptance Criteria
+
+### 5.1 Quality & Performance Benchmarks
+
+| Metric | Target Gate | Evaluation Method |
+| :--- | :--- | :--- |
+| **Faithfulness (Groundedness)** | **$\ge 0.92$** | Ragas Faithfulness metric over 100 golden GED passages. |
+| **Vocational Authenticity** | **$\ge 0.88$** | Verification that steps cite authentic tools/tasks from O\*NET. |
+| **Analogy Breakdown Rigor (`U-07`)** | **$100\%$ valid ($\ge 1$ item)** | Enforced in Go domain validation and DB constraints. |
+| **Retrieval Latency (p95)** | **$\le 120\text{ ms}$** | Direct partial HNSW index execution on PostgreSQL 16. |
+| **End-to-End Latency (p95)** | **$\le 6.5\text{ s}$** | From highlight click to rendered analogy in sidebar UI. |
+
+### 5.2 Verification Gates & Fail-Safe Invariants
+
+Execution is complete only when all five gates pass:
+
+1. **Database Schema & Vector Index Gate:**
+   - Real PostgreSQL 16 with `pgvector` migration `009_rag_knowledge_pipeline.sql` applies cleanly (`cmd/migrate up -> down -> up` exits 0).
+   - Partial HNSW vector indexes (`idx_chunks_embedding_vocational`, `idx_chunks_embedding_curricular`) build without errors on 512-dimension vectors.
+
+2. **Sub-Timeout Budget & Fail-Safe Fallback Gate:**
+   - When vector embedding or HyDE sub-calls time out or fail (injected network error), the pipeline immediately falls back to PostgreSQL `tsvector` BM25 keyword retrieval + zero-shot generation within the remaining window.
+   - Learner requests **never fail with HTTP 503** due to upstream vector latency or embedding rate limits.
+
+3. **Closed-World Link Validation Gate (`U-05`, `U-08`):**
+   - Verified that any prerequisite chapter ID or term link generated by the RAG orchestrator that does not resolve to an active published chapter in PostgreSQL is stripped/unlinked before returning to the client.
+
+4. **Codegen Synchronization Gate:**
+   - `pnpm codegen` completes with zero drift across `sqlc`, `apps/api/openapi.json`, and `apps/web/lib/api/schema.d.ts`.
+
+5. **CI Quality & Offline Test Gate:**
+   - Unit tests for `rag_service.go` run completely offline with mocked embeddings and mocked vector store.
+   - `pnpm lint`, `pnpm --filter web check-types`, and `pnpm test` pass with 0 errors and 0 warnings.
+
+---
+
+## 6. Firecrawl Ingestion Workflow (`scripts/ingest_rag_sources.sh`)
+
+1. **Curricular Ingestion:**
+   ```bash
+   # Extract official GED Assessment Guide PDF into clean Markdown
+   firecrawl parse "https://ged.com/wp-content/uploads/assessment_guide_for_educators.pdf" \
+     -o apps/api/data/rag/curriculum/ged_assessment_guide.md
    ```
-4. **Structured Schema Requirement:**
-   Each generated step (`U-06`) must return a `vocational_task_citation` string matching one of the retrieved vocational procedures, and each limit (`U-07`) must cite where the physical metaphor diverges from the academic principle.
+2. **Vocational Regulatory Ingestion:**
+   ```bash
+   # Extract FDA Food Code Chapter 3 (Food Operations)
+   firecrawl scrape "https://www.fda.gov/food/fda-food-code/food-code-2022" \
+     --format markdown -o apps/api/data/rag/vocational/fda_food_code_ch3.md
+   ```
+3. **Batch Loader Execution (`apps/api/cmd/ingest/main.go`):**
+   - Parses the downloaded Markdown files and O\*NET 29.x CSV tables.
+   - Splits into 150-word child chunks + 600-word parent windows.
+   - Computes 512d embeddings with OpenAI `text-embedding-3-small`.
+   - Inserts into `knowledge_sources`, `knowledge_documents`, and `knowledge_chunks`.
 
 ---
 
-## 5. Professional-Grade Benchmarks & Acceptance Criteria
+## 7. Guardrails & Execution Precedence
 
-In compliance with modern evaluation rigor (Ragas & TruLens benchmarks), this RAG implementation must pass automated CI quality gates on an evaluation dataset of 100 golden GED passages paired with the 10 starter job fields (1,000 test pairs):
-
-| Metric | Target Gate | Evaluation Method | Failure Impact |
-| :--- | :--- | :--- | :--- |
-| **Faithfulness (Groundedness)** | **$\ge 0.92$** | Ragas Faithfulness metric: ratio of atomic claims in generated analogy verifiable against source passage + retrieved chunks. | Rejects explanation; triggers 1 repair prompt before falling back. |
-| **Vocational Authenticity** | **$\ge 0.88$** | Expert/LLM evaluation: Does the step-by-step analogy use accurate job terminology (e.g., correct tools, valid SOP sequences)? | Prevents superficial/condescending analogies. |
-| **Analogy Breakdown Rigor (`U-07`)** | **$100\%$ valid ($\ge 1$ item)** | Invariant: Every response must identify at least one explicit failure point where the metaphor breaks down scientifically. | Database constraint & Go domain check (`ErrMissingAnalogyLimit`). |
-| **Negative Rejection (Self-Awareness)** | **$\ge 0.95$** | When presented with an intentionally unworkable mapping, model safely falls back to everyday analogy (`is_everyday_fallback = true`). | Prevents forced, nonsensical analogies. |
-| **Retrieval Latency (p95)** | **$\le 180\text{ ms}$** | Hybrid HNSW vector distance + BM25 tsvector search execution time on PostgreSQL 16. | Ensures overall endpoint responds within the 15s budget. |
-| **End-to-End Generation Latency (p95)**| **$\le 6.5\text{ s}$** | Total time from highlight click to complete structured JSON delivery in sidebar UI. | Prevents learner drop-off during study sessions. |
+1. **Strict Execution Sequence:** This plan will be executed **only after Phase 3 (AI Core MVP) and Phase 4 (Editorial Upgrades) are complete and verified**.
+2. **Zero External Vector SaaS:** All vectors remain inside PostgreSQL 16 via `pgvector`.
+3. **No Request-Time Web Crawling:** Firecrawl is used exclusively in offline batch ingestion mode. Real-time learner requests query local PostgreSQL indexes only.
 
 ---
 
-## 6. Work Items & Phased Implementation Breakdown
+## 8. Files Touched & Blast-Radius Guard
 
-### Phase 1: Storage & Ingestion Infrastructure
-- [ ] Write Goose migration `007_rag_knowledge_pipeline.sql` (`pgvector`, `knowledge_sources`, `knowledge_documents`, `knowledge_chunks`).
-- [ ] Add `pgvector` to local Docker development compose and CI test containers.
-- [ ] Write CLI ingestion command `apps/api/cmd/ingest/main.go` supporting:
-  - Ingestion of O*NET 29.x task and tools database for the 10 starter job fields.
-  - Ingestion of OpenStax / GED educator guideline summaries.
-- [ ] Implement embedding worker using OpenAI `text-embedding-3-small` with dimension reduction to 512d.
-
-### Phase 2: Hybrid Retrieval Service in `apps/api`
-- [ ] Add `apps/api/sql/queries/rag.sql` and run `pnpm codegen` to produce type-safe Go query methods.
-- [ ] Implement `internal/rag/retriever.go` executing dual query generation and RRF ranking.
-- [ ] Add unit and mock integration tests verifying RRF mathematical ranking and source filtering.
-
-### Phase 3: AI Service Integration & Structured Output Upgrade
-- [ ] Update `internal/service/analogy_service.go` to integrate the RAG pipeline prior to LLM prompt formatting.
-- [ ] Update JSON Schema for `OpenAI` client to require explicit citation metadata for each analogy step and limit.
-- [ ] Add fallback mechanism: if RAG yields low confidence score ($< 0.015$ RRF), gracefully proceed with base grounded prompt and set `is_rag_augmented = false`.
-
-### Phase 4: Frontend UI Citation & Confidence Enhancements
-- [ ] Update `apps/web/components/AnalogyStudySidebar.tsx` to display verified source badges (e.g. *"Grounded in O\*NET Logistics Standard Task 4.2"*).
-- [ ] Add expandable *"Why this comparison works / where it differs"* drawer.
-- [ ] Run end-to-end Vitest and smoke tests across the full monorepo.
-
----
-
-## 7. Explicit Non-Goals & Invariant Guardrails
-
-1. **No External Vector SaaS:** Under no circumstances will vectors be shipped to third-party vector databases (Pinecone, Weaviate, Qdrant). All embeddings remain strictly within PostgreSQL via `pgvector`.
-2. **No Unanchored Web Crawling at Request Time:** The AI service must **never** execute live, synchronous web searches during a learner's HTTP request. All external sources must be pre-ingested, sanitized, and stored in the vetted `knowledge_sources` tables to prevent SSRF, latency spikes, and prompt-injection attacks.
-3. **No Relaxation of Verbatim Selection Bounds:** Adding RAG does not bypass the core rule of `ADR-004`: `selected_text` must still be a 1–3 paragraph verbatim substring of a published chapter version.
-4. **No Unbounded Cost:** Embeddings are generated once at ingestion time. User requests only generate a single 512d query embedding (costing $< \$0.00001$), fitting easily within Idep's operational budget.
+| Action | File Path |
+| :--- | :--- |
+| **new** | `apps/api/sql/schema/009_rag_knowledge_pipeline.sql` |
+| **new** | `apps/api/sql/queries/rag.sql` |
+| **new** | `apps/api/cmd/ingest/main.go`, `scripts/ingest_rag_sources.sh` |
+| **new** | `apps/api/internal/service/rag_service.go`, `apps/api/internal/service/rag_service_test.go` |
+| **edit** | `apps/api/sqlc.yaml`, `apps/api/internal/service/analogy_service.go`, `.github/workflows/ci.yml` (service container image) |
+| **regenerated** | `apps/api/internal/repository/db/*`, `apps/api/openapi.json`, `apps/web/lib/api/schema.d.ts` |
+| **must NOT change** | `apps/api/internal/guardrails_test.go`, `apps/api/sql/schema/001_*.sql` through `008_*.sql`, `apps/web/lib/supabase.ts`, `packages/eslint-config/**` |
 
