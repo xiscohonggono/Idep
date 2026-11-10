@@ -1,11 +1,12 @@
-STATUS: APPROVED
+STATUS: APPROVED (ARCHIVED / PRE-ROLLBACK)
 
 # Architectural & Code Review — Grounded AI Profession Analogies, Elaborations & Feedback Flywheel
 
-> **Plan Reviewed:** [`docs/plans/Implemented/grounded-ai-analogies.md`](../plans/Implemented/grounded-ai-analogies.md)  
+> **Plan Reviewed:** [`docs/plans/Pending/grounded-ai-analogies.md`](../plans/Pending/grounded-ai-analogies.md)  
 > **Verification Evidence:** [`docs/verification/grounded-ai-analogies.md`](../verification/grounded-ai-analogies.md)  
 > **Reviewer:** Gemini (Architect & Reviewer)  
-> **Date:** 2026-11-03
+> **Date:** 2026-11-03 (Archived post-rollback 2026-11-08)  
+> **Note:** This review documents the approval of commit `af67b16`. The implementation was rolled back to planning in commit `7e8b140`. Referenced implementation files (`analogy_service.go`, `openai.go`, `AnalogyStudySidebar.tsx`) reflect the pre-rollback commit.
 
 ---
 
@@ -16,13 +17,13 @@ STATUS: APPROVED
 All 5 acceptance criteria (**AC1–AC5**) and all guardrails in [`.agent/rules/project_guardrails.md`](../../.agent/rules/project_guardrails.md) pass both offline and against a live PostgreSQL 16.15 instance:
 
 - **Schema & Invariants (`002`, `003`, `006`):** Enforces `SET lock_timeout = '3s'; SET statement_timeout = '30s';` in every `-- +goose Up` and `-- +goose Down` block, seeds the 10 `job_fields` and 4 GED `subjects`, blocks mutation of `chapter_versions` via `trg_chapter_versions_immutable`, enforces paragraph/character bounds (`1..3` paragraphs, `15..3000` chars) on `study_highlights`, requires `jsonb_array_length(analogy_limits_json) >= 1` (`U-07`) and `chk_work_field_or_fallback` on `ai_explanations`, enforces `chk_elaboration_target_index` and `chk_elaboration_content_or_hint` on `ai_elaborations`, and enforces `rating IN ('like', 'dislike')`, `comment` length `1..500`, and `UNIQUE (explanation_id, user_id)` on `ai_explanation_feedback`.
-- **Grounded AI Service & Security Hardening ([`apps/api/internal/service/analogy_service.go`](../../apps/api/internal/service/analogy_service.go), [`apps/api/internal/llm/openai.go`](../../apps/api/internal/llm/openai.go)):**
+- **Grounded AI Service & Security Hardening (`apps/api/internal/service/analogy_service.go`, `apps/api/internal/llm/openai.go`):**
   - Verifies caller existence in `users` (`UserExists`) before any LLM call so an unknown `X-User-ID` returns `401 Unauthorized` without bypassing the `30/24h` quota or burning OpenAI credits.
   - Enforces ownership (`403 Forbidden`) across `ListHighlightExplanations`, `Elaborate`, and `UpsertFeedback`.
   - Strips hallucinated or subsequently archived chapter links from `terms` (`U-05`) and `prerequisites` (`U-08`) on both write and read (`hydrate`).
   - Sanitizes untrusted learner inputs (`role_title`, `user_prompt`, liked exemplar steps/limits, and dislike comments) via `domain.SanitizeUntrusted` (stripping `<`, `>`, and control characters) and wraps them in `<untrusted_learner_profile>`, `<untrusted_community_feedback>`, and `<untrusted_learner_prompt>` delimiters.
   - Enforces the `15s` hard context deadline with `option.WithMaxRetries(0)` on the OpenAI client and at most `1` schema-repair retry (`maxAttempts = 2`).
-- **Frontend & End-to-End Type Safety ([`apps/web/lib/api/go.ts`](../../apps/web/lib/api/go.ts), [`apps/web/components/AnalogyStudySidebar.tsx`](../../apps/web/components/AnalogyStudySidebar.tsx)):** Imports all request/response types directly from generated `apps/web/lib/api/schema.d.ts`, routes interactive mutations through Next.js Server Actions in `apps/web/app/page.tsx`, fixes the unlayered CSS reset in `apps/web/app/globals.css` (`@layer base`), and passes 20 Vitest tests across 2 test suites with zero new npm dependencies.
+- **Frontend & End-to-End Type Safety ([`apps/web/lib/api/go.ts`](../../apps/web/lib/api/go.ts), `apps/web/components/AnalogyStudySidebar.tsx`):** Imports all request/response types directly from generated `apps/web/lib/api/schema.d.ts`, routes interactive mutations through Next.js Server Actions in `apps/web/app/page.tsx`, fixes the unlayered CSS reset in `apps/web/app/globals.css` (`@layer base`), and passes 20 Vitest tests across 2 test suites with zero new npm dependencies.
 
 ---
 

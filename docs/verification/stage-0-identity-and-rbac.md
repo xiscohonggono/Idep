@@ -1,7 +1,8 @@
 # Verification Log — Stage 0 Identity & RBAC Foundation
 
-> **Plan:** [`docs/plans/Implemented/stage-0-identity-and-rbac.md`](../plans/Implemented/stage-0-identity-and-rbac.md) (Revision 2)
-> **Date:** 2026-11-02
+> **Plan:** [`docs/plans/Pending/stage-0-identity-and-rbac.md`](../plans/Pending/stage-0-identity-and-rbac.md) (Revision 2)
+> **Date:** 2026-11-02 (Archived post-rollback 2026-11-08)
+> **Note:** Records verification evidence for commit `de098e9`. Implementation was rolled back to planning in commit `7e8b140`.
 > **Builder:** Claude Code
 > **Toolchain:** Go 1.26.8, Node 22.22.1, pnpm 11.25.0, sqlc 1.31.1, openapi-typescript 7.13.0, PostgreSQL 16.15
 > **Conditions:** Offline gates ran with `DATABASE_URL` unset. Live gates ran against a throwaway local PostgreSQL 16.15, not `postgres:16-alpine` (see AC8).

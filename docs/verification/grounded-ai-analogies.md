@@ -1,7 +1,8 @@
 # Verification Log — Grounded AI Analogies
 
 > **Plan:** [`docs/plans/Pending/grounded-ai-analogies.md`](../plans/Pending/grounded-ai-analogies.md)
-> **Date:** 2026-11-03
+> **Date:** 2026-11-03 (Archived post-rollback 2026-11-08)
+> **Note:** Records verification evidence for commit `af67b16`. Implementation was rolled back to planning in commit `7e8b140`.
 > **Builder:** Claude Code
 > **Toolchain:** Go 1.26.8, Node 22.22.1, pnpm 11.25.0, openapi-typescript 7.13.0, openai-go v3.91.1, PostgreSQL 16.15
 > **Conditions:** Offline gates ran with `DATABASE_URL` and `OPENAI_API_KEY` unset. Live gates ran against a throwaway local PostgreSQL 16.15 in `/tmp`, because Docker has no WSL integration here. The HTTP and browser checks used a local OpenAI stub, so **no call reached OpenAI**.

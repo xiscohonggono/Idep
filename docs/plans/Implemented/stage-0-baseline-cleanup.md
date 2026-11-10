@@ -1,6 +1,6 @@
 # Stage 0 — Baseline Cleanup (Bootstrap Conformance & Huma Single Source of Truth)
 
-> **Status:** Pending — decisions resolved, ready for delegation (Revision 3)
+> **Status:** Implemented & Approved (Revision 4; see [`docs/reviews/stage-0-baseline-cleanup-review.md`](../../reviews/stage-0-baseline-cleanup-review.md) and [`docs/verification/stage-0-baseline-cleanup.md`](../../verification/stage-0-baseline-cleanup.md))
 > **Bootstrap reference:** `turbo-next-go-template` as defined in [`AGENTS.md` §6](file:///home/xiscohonggono/projects/Idep/AGENTS.md#L49-L76) (bootstrap commit `670f30d`).
 > **Builder:** Claude Code via `delegate-to-claude`. **Reviewer:** Gemini/Architect → `docs/reviews/stage-0-baseline-cleanup-review.md`.
 

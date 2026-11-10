@@ -1,6 +1,7 @@
 # Stage 3 Slice — Grounded AI Profession Analogies, Elaborations & Feedback Flywheel
 
-> **Status:** Implemented & Approved (see [`docs/reviews/grounded-ai-analogies-review.md`](../../reviews/grounded-ai-analogies-review.md) and [`docs/verification/grounded-ai-analogies.md`](../../verification/grounded-ai-analogies.md))  
+> **Status:** Pending Re-Delegation (Previously Implemented in af67b16; Rolled Back to Planning in 7e8b140 on 2026-11-08; Blocked on Stage 0 & Stage 1 Schemas)  
+> **Review & Verification Archive:** [`docs/reviews/grounded-ai-analogies-review.md`](../../reviews/grounded-ai-analogies-review.md) · [`docs/verification/grounded-ai-analogies.md`](../../verification/grounded-ai-analogies.md)  
 > **Scope:** Stage 1 prerequisite schema (`002_work_experience.sql`, `003_curriculum_and_guests.sql`) + Stage 3 AI schema (`006_study_highlights_and_ai.sql`), `sqlc` queries, OpenAI (`gpt-4.1-mini`) structured-output generator, Huma OpenAPI 3.1 endpoints (`U-04`–`U-08` + passage-anchored elaborations + like/dislike profession feedback flywheel), and Next.js AI Study Sidebar UI.  
 > **Builder:** Claude Code via `delegate-to-claude` · **Reviewer:** Gemini/Architect → `docs/reviews/grounded-ai-analogies-review.md`  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
@@ -57,7 +58,7 @@ flowchart LR
    - Copy the exact DDL for `study_highlights`, `ai_explanations`, `ai_elaborations`, `ai_explanation_feedback`, and `reexplanation_attempts` (with all indexes and `CHECK` constraints) from [`database-schema-proposal.md` §3.4](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md#L451-L579).
    - `-- +goose Down` drops `reexplanation_attempts`, `ai_explanation_feedback`, `ai_elaborations`, `ai_explanations`, and `study_highlights`.
 
-4. **Update [`apps/api/internal/dbtest/schema_test.go`](file:///home/xiscohonggono/projects/Idep/apps/api/internal/dbtest/schema_test.go):**
+4. **Update `apps/api/internal/dbtest/schema_test.go`:**
    - Keep all existing Stage 0 invariant subtests intact.
    - Add subtests verifying:
      - `job_fields` has `10` seeded rows and `subjects` has `4` seeded rows.

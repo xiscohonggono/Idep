@@ -1,6 +1,7 @@
 # Stage 0 — Identity & RBAC Foundation
 
-> **Status:** Implemented & Approved (see [`docs/reviews/stage-0-identity-and-rbac-review.md`](../../reviews/stage-0-identity-and-rbac-review.md) and [`docs/verification/stage-0-identity-and-rbac.md`](../../verification/stage-0-identity-and-rbac.md))  
+> **Status:** Pending Re-Delegation (Previously Implemented in de098e9; Rolled Back to Planning in 7e8b140 on 2026-11-08)  
+> **Review & Verification Archive:** [`docs/reviews/stage-0-identity-and-rbac-review.md`](../../reviews/stage-0-identity-and-rbac-review.md) · [`docs/verification/stage-0-identity-and-rbac.md`](../../verification/stage-0-identity-and-rbac.md)  
 > **Scope:** Stage 0 of [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md): `001_identity_and_rbac.sql`, `sqlc.yaml` overrides, Stage 0 SQL queries, `pressly/goose/v3` migration CLI, read-path contract update (`GET /api/v1/users/{id}`), and PostgreSQL 16 CI verification.  
 > **Builder:** Claude Code via `delegate-to-claude` · **Reviewer:** Gemini/Architect → `docs/reviews/stage-0-identity-and-rbac-review.md`  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`.agent/rules/project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
@@ -13,6 +14,7 @@
 | :--- | :--- |
 | 1 | Initial draft: custom zero-dependency runner, Go write methods (`CreateUser`/`GrantRole`/`RevokeRole`), doc status edits by Builder. |
 | 2 | **D1:** replace custom runner with `pressly/goose/v3` (version tracking, one-step `down`; matches `[ASSUMPTION-M2]`). **D2:** defer Go write methods to the auth/role-admin plan; Stage 0 ships SQL queries + live DB tests only. **D3:** include `README.md`, `AGENTS.md`, and a stale anchor fix in `database-staging-proposal.md`. Fixes: per-test schema isolation (parallel `go test` packages shared one DB), single-query role aggregation, `format:"uuid"`/`enum` tags, non-NULL `metadata_json`, CI-only live verification stated honestly, proposal status edits moved to post-approval ledger step. |
+| 3 | Implementation from de098e9 rolled back to planning in commit 7e8b140 (Nov 8 2026). Plan retained as authoritative specification ready for re-delegation. |
 
 ---
 

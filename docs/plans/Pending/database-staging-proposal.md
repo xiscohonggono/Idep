@@ -1,6 +1,6 @@
 # Database Staging & Safe Migration Rollout Plan
 
-> **Status:** Stages 0, 1 & 3 migrations implemented (`001`, `002`, `003`, `006`); Stages 2 & 4 pending  
+> **Status:** Approved Staging Contract — Implementation Rolled Back to Planning (Current codebase at bootstrap 001_users.sql; Stages 0–4 pending rollout)  
 > **Lifecycle Pattern:** Expand → Migrate → Verify → Contract  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-schema-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-schema-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 

@@ -1,11 +1,12 @@
-STATUS: APPROVED
+STATUS: APPROVED (ARCHIVED / PRE-ROLLBACK)
 
 # Architectural & Code Review — Stage 0: Identity & RBAC Foundation
 
-> **Plan Reviewed:** [`docs/plans/Implemented/stage-0-identity-and-rbac.md`](../plans/Implemented/stage-0-identity-and-rbac.md) (Revision 2)  
+> **Plan Reviewed:** [`docs/plans/Pending/stage-0-identity-and-rbac.md`](../plans/Pending/stage-0-identity-and-rbac.md) (Revision 2)  
 > **Verification Evidence:** [`docs/verification/stage-0-identity-and-rbac.md`](../verification/stage-0-identity-and-rbac.md)  
 > **Reviewer:** Gemini (Architect & Reviewer)  
-> **Date:** 2026-11-02
+> **Date:** 2026-11-02 (Archived post-rollback 2026-11-08)  
+> **Note:** This review documents the approval of commit `de098e9`. The implementation was rolled back to planning in commit `7e8b140`. Referenced implementation files (`001_identity_and_rbac.sql`, `cmd/migrate`, `internal/dbtest`) reflect the pre-rollback commit.
 
 ---
 
@@ -15,9 +16,9 @@ STATUS: APPROVED
 
 All 8 acceptance criteria (**AC1–AC8**) and all guardrails in [`.agent/rules/project_guardrails.md`](../../.agent/rules/project_guardrails.md) pass both offline and against a live PostgreSQL 16.15 instance:
 
-- **Schema & Invariants ([`apps/api/sql/schema/001_identity_and_rbac.sql`](../../apps/api/sql/schema/001_identity_and_rbac.sql)):** Enforces `SET lock_timeout = '3s'; SET statement_timeout = '30s';` in both `-- +goose Up` and `-- +goose Down`, `chk_editor_guidelines`, `chk_revocation_reason`, `idx_user_roles_active_unique`, and `trg_audit_events_immutable` via `prevent_immutable_table_mutation()`.
+- **Schema & Invariants (`apps/api/sql/schema/001_identity_and_rbac.sql`):** Enforces `SET lock_timeout = '3s'; SET statement_timeout = '30s';` in both `-- +goose Up` and `-- +goose Down`, `chk_editor_guidelines`, `chk_revocation_reason`, `idx_user_roles_active_unique`, and `trg_audit_events_immutable` via `prevent_immutable_table_mutation()`.
 - **Compiled SQL & Native Type Overrides ([`apps/api/sqlc.yaml`](../../apps/api/sqlc.yaml), [`apps/api/sql/queries/users.sql`](../../apps/api/sql/queries/users.sql)):** `sqlc v1.31.1` compiles `GetUserByID` (single-query `LEFT JOIN` with `COALESCE(array_agg(...), '{}')::text[]`), `CreateUser`, `GrantUserRole`, `RevokeUserRole`, and `InsertAuditEvent` into native `uuid.UUID`, `*uuid.UUID`, `time.Time`, and `*time.Time` types with zero `pgtype` usage.
-- **Migration Runner & Parallel Test Isolation ([`apps/api/cmd/migrate/main.go`](../../apps/api/cmd/migrate/main.go), [`apps/api/internal/dbtest/dbtest.go`](../../apps/api/internal/dbtest/dbtest.go)):** `cmd/migrate` applies `up` and one-step `down` via `goose.NewProvider` without leaking `DATABASE_URL` in error logs; `dbtest.New` isolates each live test in its own `t_<12hex>` schema (`CREATE SCHEMA ...` / `DROP SCHEMA ... CASCADE`), passing `go test -count=5` across parallel packages.
+- **Migration Runner & Parallel Test Isolation (`apps/api/cmd/migrate/main.go`, `apps/api/internal/dbtest/dbtest.go`):** `cmd/migrate` applies `up` and one-step `down` via `goose.NewProvider` without leaking `DATABASE_URL` in error logs; `dbtest.New` isolates each live test in its own `t_<12hex>` schema (`CREATE SCHEMA ...` / `DROP SCHEMA ... CASCADE`), passing `go test -count=5` across parallel packages.
 - **Fail-Closed Read Path & End-to-End Contract ([`apps/api/internal/handler/user_handler.go`](../../apps/api/internal/handler/user_handler.go), [`apps/api/openapi.json`](../../apps/api/openapi.json), [`apps/web/lib/api/schema.d.ts`](../../apps/web/lib/api/schema.d.ts)):** Rejects malformed UUIDs and `uuid.Nil` with `422 Unprocessable Entity`, missing/soft-deleted users with `404 Not Found`, and nil/unreachable DB with `503 Service Unavailable`.
 
 ---

@@ -1,6 +1,6 @@
 # Verification Log — Stage 0 Baseline Cleanup
 
-> **Plan:** [`docs/plans/Pending/stage-0-baseline-cleanup.md`](../plans/Pending/stage-0-baseline-cleanup.md) (Revision 4)
+> **Plan:** [`docs/plans/Implemented/stage-0-baseline-cleanup.md`](../plans/Implemented/stage-0-baseline-cleanup.md) (Revision 4)
 > **Date:** 2026-11-01
 > **Builder:** Claude Code
 > **Toolchain:** Go 1.26.8, Node 22.22.1, pnpm 11.25.0, sqlc 1.31.1, TypeScript 5.9.3 (resolved from `^5.7.0`), openapi-typescript 7.13.0

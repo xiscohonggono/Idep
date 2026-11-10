@@ -1,6 +1,6 @@
 # Database Schema & Persistence Contract
 
-> **Status:** Stages 0, 1 & 3 migrations implemented (`001_identity_and_rbac.sql`, `002_work_experience.sql`, `003_curriculum_and_guests.sql`, `006_study_highlights_and_ai.sql`); Stages 2 & 4 pending  
+> **Status:** Approved Architectural Contract — Implementation Rolled Back to Planning (Current codebase at bootstrap 001_users.sql; Stages 0–4 pending rollout)  
 > **Engine:** PostgreSQL 16+ · **Driver:** `jackc/pgx/v5` · **Compiler:** `sqlc` (`apps/api/sqlc.yaml`)  
 > **Related Contracts:** [`architectural_decisions.md`](file:///home/xiscohonggono/projects/Idep/docs/architecture/architectural_decisions.md) · [`database-staging-proposal.md`](file:///home/xiscohonggono/projects/Idep/docs/plans/Pending/database-staging-proposal.md) · [`project_guardrails.md`](file:///home/xiscohonggono/projects/Idep/.agent/rules/project_guardrails.md)
 
