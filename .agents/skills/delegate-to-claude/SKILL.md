@@ -25,9 +25,13 @@ You are the Architect and Code Reviewer. You are FORBIDDEN from writing or editi
    - Do NOT nitpick code style or formatting.
    - Write your review into `docs/reviews/<feature-name>-review.md` starting with either `STATUS: APPROVED` or `STATUS: REJECTED`.
 
-4. **Fix Loop:**
+4. **Fix Loop & User Escalation:**
    - If `STATUS: REJECTED`, run Claude again (up to 3 times total):
      `claude -p "Read docs/reviews/<feature-name>-review.md and docs/plans/Pending/<feature-name>.md. Fix all issues listed." --dangerously-skip-permissions`
+   - **Escalation Gate (2–3 Rejections):** If Claude's implementation is rejected 2–3 times and fails to resolve the issues:
+     - **Halt immediately** and do not launch additional automated fix runs.
+     - Surface the review findings, failing tests, and unresolved guardrails directly to the user in chat.
+     - Ask the user for explicit decision and approval (e.g., whether to adjust the plan in `docs/plans/Pending/`, override the rejection, or provide manual guidance).
 
 5. **Move to Implemented & Final Approval:**
    - Once `STATUS: APPROVED`, automatically move the plan from Pending to Implemented:
