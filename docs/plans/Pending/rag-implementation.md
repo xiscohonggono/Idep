@@ -103,7 +103,20 @@ flowchart TD
 | **OSHA 29 CFR 1910** (selected subparts per trade) | `vocational` | U.S. federal public domain | eCFR public API (free) | Required |
 | **FDA Food Code 2022** (Chapters 3–4) | `vocational` | U.S. federal public domain | Official PDF → convert locally | Required (`fnb`, `hospitality`) |
 | **Promoted exemplars** (`ai_explanations`) | `exemplar` | Platform terms | `cmd/ingest exemplars` | Required |
-| **GED Assessment Guide for Educators** | — | GED Testing Service copyright | — | **Excluded** until written permission is recorded in `docs/verification/` |
+
+### 2.1 Source Manifest (`apps/api/data/rag/sources.csv`)
+
+Markdown and CSV files on disk carry raw text, not legal metadata. To populate the `NOT NULL` columns of `knowledge_sources` (`authority_name`, `license_type`, `attribution_text`, `version_tag`, `source_url`) without hardcoding metadata in Go or adding a YAML/TOML dependency, `apps/api/data/rag/sources.csv` serves as the declarative manifest (parsed via Go's standard library `encoding/csv`):
+
+```csv
+file_path,name,source_type,job_field_code,authority_name,license_type,attribution_text,source_url,version_tag
+curriculum/openstax_biology_2e.md,OpenStax Biology 2e,curriculum,,Rice University / OpenStax,CC BY 4.0,"Access for free at https://openstax.org/books/biology-2e/pages/1-introduction (CC BY 4.0)",https://openstax.org/details/books/biology-2e,2e-2024
+vocational/onet_29_tasks.csv,O*NET 29.x Task Statements,vocational,*,U.S. Department of Labor / O*NET,CC BY 4.0,"Includes data from O*NET 29.0 Database by the U.S. Dept. of Labor (CC BY 4.0)",https://www.onetcenter.org/database.html,29.0
+vocational/osha_1910.md,OSHA 29 CFR 1910 General Industry,vocational,construction,U.S. Occupational Safety and Health Administration,US Public Domain,"Source: OSHA 29 CFR Part 1910 (U.S. Public Domain)",https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XVII/part-1910,2026-01
+vocational/fda_food_code_2022.md,FDA Food Code 2022,vocational,fnb,U.S. Food and Drug Administration,US Public Domain,"Source: FDA Food Code 2022 (U.S. Public Domain)",https://www.fda.gov/food/fda-food-code/food-code-2022,2022
+```
+
+- Any file under `apps/api/data/rag/curriculum/` or `vocational/` not listed in `sources.csv` is rejected by `cmd/ingest sources` with a non-zero exit code (fail-closed licence gate).
 
 > [!NOTE]
 > Firecrawl is no longer required: every source has a free official CSV, API or PDF. If PDF-to-Markdown conversion quality is insufficient, using Firecrawl is a paid external action and needs explicit user approval (`AGENTS.md` §1).
@@ -418,7 +431,7 @@ Runs on any machine with Ollama and `DATABASE_URL` (production or staging). Idem
 
 | Subcommand | Behaviour |
 | :--- | :--- |
-| `ingest sources --dir apps/api/data/rag` | Reads Markdown/CSV under `curriculum/` and `vocational/`, splits (§3.3), embeds with `search_document: ` prefix in batches of 64 via `/api/embed`, replaces a document's chunks in one transaction (`DeleteChunksByDocument` + inserts). |
+| `ingest sources --dir apps/api/data/rag` | Reads `apps/api/data/rag/sources.csv` via `encoding/csv`, upserts each `knowledge_sources` row (`UpsertKnowledgeSource`), reads the referenced Markdown/CSV file under `curriculum/` or `vocational/`, splits (§3.3), embeds with `search_document: ` prefix in batches of 64 via `/api/embed`, and replaces the document's chunks in one transaction (`DeleteChunksByDocument` + inserts). Fails closed if a file is missing from `sources.csv` or has an empty `attribution_text`. |
 | `ingest chapters` | Loops `ListPublishedVersionsMissingParagraphs` until empty: paragraph precompute (§3.4) **and** curriculum chunks for the version (source *Idep Published Chapters*), all in one transaction per version. |
 | `ingest exemplars` | Promotes `ListPromotableExemplars`: `content_text` = `selected_text`, `parent_context_text` = serialized steps + limits, `job_field_code` and `chapter_id` copied. |
 | Common flags | `--ollama-url` (default `http://localhost:11434`), `--dry-run` (no writes; prints counts and token totals), `--reembed`. |
@@ -497,7 +510,7 @@ Execution is complete only when all gates pass:
 | :--- | :--- |
 | **new** | `apps/api/sql/schema/009_rag_knowledge_pipeline.sql`, `apps/api/sql/queries/rag.sql` |
 | **new** | `apps/api/internal/rag/splitter.go`, `splitter_test.go`, `paragraphs.go`, `paragraphs_test.go`, `ollama.go`, `ollama_test.go` |
-| **new** | `apps/api/cmd/ingest/main.go`, `scripts/fetch_rag_sources.sh`, `apps/api/data/rag/job_field_soc_map.csv` |
+| **new** | `apps/api/cmd/ingest/main.go`, `scripts/fetch_rag_sources.sh`, `apps/api/data/rag/sources.csv`, `apps/api/data/rag/job_field_soc_map.csv` |
 | **new** | `apps/api/internal/service/rag_service.go`, `rag_service_test.go`, `docs/verification/rag-baseline.md` |
 | **edit** | `apps/api/go.mod`, `go.sum` (`pgvector-go`, `tiktoken-go`, `tiktoken-go-loader`), `apps/api/sqlc.yaml`, pool setup in `apps/api/cmd/server/main.go` (`pgxvec.RegisterTypes`) |
 | **edit** | `apps/api/internal/service/analogy_service.go`, `apps/api/internal/domain/analogy.go` (`Citation`, `Citations`), `apps/api/internal/handler/analogy_handler.go` |
